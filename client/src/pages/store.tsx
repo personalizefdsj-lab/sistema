@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, ShoppingCart, Plus, Minus, X, Store as StoreIcon, UserCircle } from "lucide-react";
+import { Search, ShoppingCart, Plus, Minus, X, Store as StoreIcon, UserCircle, Lock } from "lucide-react";
 import type { Product } from "@shared/schema";
 import CheckoutPage from "./checkout";
 
@@ -22,9 +22,17 @@ export default function PublicStore() {
   const [showCheckout, setShowCheckout] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
-  const { data: company, isLoading: companyLoading, error: companyError } = useQuery<any>({
+  const [storeError, setStoreError] = useState<"not_found" | "plan_restricted" | null>(null);
+  const { data: company, isLoading: companyLoading } = useQuery<any>({
     queryKey: ["/api/store", slug],
-    queryFn: () => fetch(`/api/store/${slug}`).then(r => { if (!r.ok) throw new Error("Loja não encontrada"); return r.json(); }),
+    queryFn: async () => {
+      const r = await fetch(`/api/store/${slug}`);
+      if (r.status === 403) { setStoreError("plan_restricted"); throw new Error("plan_restricted"); }
+      if (!r.ok) { setStoreError("not_found"); throw new Error("not_found"); }
+      setStoreError(null);
+      return r.json();
+    },
+    retry: false,
   });
 
   const { data: products = [], isLoading: productsLoading } = useQuery<Product[]>({
@@ -66,7 +74,23 @@ export default function PublicStore() {
   const cartCount = cart.reduce((sum, i) => sum + i.quantity, 0);
 
   if (companyLoading) return <div className="flex items-center justify-center min-h-screen"><p className="text-lg">Carregando loja...</p></div>;
-  if (companyError) return <div className="flex items-center justify-center min-h-screen"><p className="text-lg text-destructive">Loja não encontrada</p></div>;
+  if (storeError === "plan_restricted") return (
+    <div className="flex items-center justify-center min-h-screen p-4">
+      <div className="text-center max-w-md">
+        <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
+          <Lock className="w-8 h-8 text-amber-600" />
+        </div>
+        <h1 className="text-xl font-bold mb-2" data-testid="text-store-unavailable">Loja Online Indisponível</h1>
+        <p className="text-muted-foreground mb-4">
+          Esta loja ainda não está ativa. O plano atual da empresa não inclui a loja online.
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Entre em contato com a empresa para mais informações.
+        </p>
+      </div>
+    </div>
+  );
+  if (storeError === "not_found") return <div className="flex items-center justify-center min-h-screen"><p className="text-lg text-destructive">Loja não encontrada</p></div>;
 
   if (showCheckout) {
     return <CheckoutPage slug={slug!} cart={cart} company={company} onBack={() => setShowCheckout(false)} onSuccess={() => { setCart([]); setShowCheckout(false); }} />;

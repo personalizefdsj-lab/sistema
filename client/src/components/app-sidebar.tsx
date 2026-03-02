@@ -13,6 +13,7 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
@@ -26,6 +27,7 @@ import {
   Warehouse,
   TrendingUp,
   ExternalLink,
+  Lock,
 } from "lucide-react";
 
 export function AppSidebar() {
@@ -34,6 +36,11 @@ export function AppSidebar() {
 
   const isSuperAdmin = user?.role === "superadmin";
   const companySlug = (user as any)?.companySlug;
+
+  const { data: company } = useQuery<any>({
+    queryKey: ["/api/company"],
+    enabled: !isSuperAdmin,
+  });
 
   const adminItems = [
     { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -97,10 +104,18 @@ export function AppSidebar() {
                 </SidebarMenuItem>
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild>
-                    <a href={`/loja/${companySlug}`} target="_blank" rel="noopener noreferrer" data-testid="link-sidebar-store">
-                      <ShoppingBag className="w-4 h-4" />
-                      <span>Loja Online</span>
-                    </a>
+                    {company?.plan === "basic" ? (
+                      <div className="flex items-center gap-2 opacity-60 cursor-default" data-testid="link-sidebar-store-locked">
+                        <Lock className="w-4 h-4" />
+                        <span className="flex-1">Loja Online</span>
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">Pro</Badge>
+                      </div>
+                    ) : (
+                      <a href={`/loja/${companySlug}`} target="_blank" rel="noopener noreferrer" data-testid="link-sidebar-store">
+                        <ShoppingBag className="w-4 h-4" />
+                        <span>Loja Online</span>
+                      </a>
+                    )}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>
