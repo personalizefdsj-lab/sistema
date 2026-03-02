@@ -66,6 +66,8 @@ export interface IStorage {
 
   getOrderItems(orderId: number): Promise<OrderItem[]>;
   createOrderItem(item: InsertOrderItem): Promise<OrderItem>;
+  updateOrderItem(id: number, data: Partial<InsertOrderItem>): Promise<OrderItem>;
+  deleteOrderItem(id: number): Promise<void>;
 
   getOnlineSalesDashboard(companyId: number): Promise<any>;
 }
@@ -391,6 +393,15 @@ export class DatabaseStorage implements IStorage {
   async createOrderItem(item: InsertOrderItem): Promise<OrderItem> {
     const [created] = await db.insert(orderItems).values(item).returning();
     return created;
+  }
+
+  async updateOrderItem(id: number, data: Partial<InsertOrderItem>): Promise<OrderItem> {
+    const [updated] = await db.update(orderItems).set(data).where(eq(orderItems.id, id)).returning();
+    return updated;
+  }
+
+  async deleteOrderItem(id: number): Promise<void> {
+    await db.delete(orderItems).where(eq(orderItems.id, id));
   }
 
   async getOnlineSalesDashboard(companyId: number): Promise<any> {

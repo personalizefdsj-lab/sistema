@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { ORDER_STATUSES, ORDER_STATUS_LABELS, FINANCIAL_STATUS_LABELS } from "@shared/schema";
 import type { Order, Client, OrderHistory, OrderItem, Product } from "@shared/schema";
-import { ArrowLeft, AlertTriangle, Clock, Phone, History, Package, Calendar } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Clock, Phone, History, Package, Calendar, Plus, Minus, Trash2, Search } from "lucide-react";
 import { format } from "date-fns";
 
 const statusColors: Record<string, string> = {
@@ -36,6 +36,7 @@ export default function OrderDetail({
   clients: Client[];
 }) {
   const { toast } = useToast();
+  const [showProductPicker, setShowProductPicker] = useState(false);
 
   const { data: order, isLoading } = useQuery<Order>({
     queryKey: ["/api/orders", orderId],
@@ -68,6 +69,36 @@ export default function OrderDetail({
     onError: (err: any) => {
       toast({ title: "Erro", description: err.message, variant: "destructive" });
     },
+  });
+
+  const invalidateItems = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/orders", orderId, "items"] });
+  };
+
+  const addItemMutation = useMutation({
+    mutationFn: async (data: { productId: number; quantity: number; unitPrice: string; variation?: string }) => {
+      const res = await apiRequest("POST", `/api/orders/${orderId}/items`, data);
+      return res.json();
+    },
+    onSuccess: () => { invalidateItems(); toast({ title: "Produto adicionado" }); },
+    onError: (err: any) => { toast({ title: "Erro", description: err.message, variant: "destructive" }); },
+  });
+
+  const updateItemMutation = useMutation({
+    mutationFn: async ({ itemId, ...data }: { itemId: number; quantity?: number; unitPrice?: string }) => {
+      const res = await apiRequest("PATCH", `/api/orders/${orderId}/items/${itemId}`, data);
+      return res.json();
+    },
+    onSuccess: () => { invalidateItems(); },
+    onError: (err: any) => { toast({ title: "Erro", description: err.message, variant: "destructive" }); },
+  });
+
+  const deleteItemMutation = useMutation({
+    mutationFn: async (itemId: number) => {
+      await apiRequest("DELETE", `/api/orders/${orderId}/items/${itemId}`);
+    },
+    onSuccess: () => { invalidateItems(); toast({ title: "Produto removido" }); },
+    onError: (err: any) => { toast({ title: "Erro", description: err.message, variant: "destructive" }); },
   });
 
   if (isLoading || !order) {
@@ -272,39 +303,88 @@ export default function OrderDetail({
         </Card>
       </div>
 
-      {orderItems.length > 0 && (
-        <Card>
-          <CardHeader>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
               <Package className="w-4 h-4" />
               Produtos do Pedido
             </CardTitle>
-          </CardHeader>
-          <CardContent>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowProductPicker(true)}
+              data-testid="button-add-item"
+            >
+              <Plus className="w-4 h-4 mr-1" /> Adicionar
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {orderItems.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">Nenhum produto adicionado a este pedido.</p>
+          ) : (
             <div className="space-y-2">
-              {orderItems.map((item, idx) => (
-                <div key={item.id || idx} className="flex items-center justify-between gap-3 p-3 rounded-md bg-muted/30 border" data-testid={`order-item-detail-${item.id}`}>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate" data-testid={`text-item-name-${item.id}`}>
-                      {products.find(p => p.id === item.productId)?.name || `Produto #${item.productId}`}
-                      {item.variation && <span className="text-muted-foreground ml-1">({item.variation})</span>}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {item.quantity}x R$ {parseFloat(item.unitPrice || "0").toFixed(2)}
+              {orderItems.map((item, idx) => {
+                const product = products.find(p => p.id === item.productId);
+                return (
+                  <div key={item.id || idx} className="flex items-center gap-2 p-3 rounded-md bg-muted/30 border" data-testid={`order-item-detail-${item.id}`}>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate" data-testid={`text-item-name-${item.id}`}>
+                        {product?.name || `Produto #${item.productId}`}
+                        {item.variation && <span className="text-muted-foreground ml-1">({item.variation})</span>}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        R$ {parseFloat(item.unitPrice || "0").toFixed(2)} cada
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button type="button" size="icon" variant="outline" className="h-7 w-7"
+                        data-testid={`button-item-minus-${item.id}`}
+                        disabled={item.quantity <= 1 || updateItemMutation.isPending}
+                        onClick={() => updateItemMutation.mutate({ itemId: item.id, quantity: item.quantity - 1 })}>
+                        <Minus className="w-3 h-3" />
+                      </Button>
+                      <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
+                      <Button type="button" size="icon" variant="outline" className="h-7 w-7"
+                        data-testid={`button-item-plus-${item.id}`}
+                        disabled={updateItemMutation.isPending}
+                        onClick={() => updateItemMutation.mutate({ itemId: item.id, quantity: item.quantity + 1 })}>
+                        <Plus className="w-3 h-3" />
+                      </Button>
+                      <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive"
+                        data-testid={`button-item-remove-${item.id}`}
+                        disabled={deleteItemMutation.isPending}
+                        onClick={() => deleteItemMutation.mutate(item.id)}>
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                    <p className="text-sm font-semibold w-20 text-right" data-testid={`text-item-subtotal-${item.id}`}>
+                      R$ {(parseFloat(item.unitPrice || "0") * item.quantity).toFixed(2)}
                     </p>
                   </div>
-                  <p className="text-sm font-semibold" data-testid={`text-item-subtotal-${item.id}`}>
-                    R$ {(parseFloat(item.unitPrice || "0") * item.quantity).toFixed(2)}
-                  </p>
-                </div>
-              ))}
+                );
+              })}
               <div className="flex items-center justify-between pt-3 border-t mt-3">
                 <span className="text-sm font-semibold">Total dos Itens</span>
                 <span className="text-sm font-bold" data-testid="text-items-total">R$ {itemsTotal.toFixed(2)}</span>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          )}
+        </CardContent>
+      </Card>
+
+      {showProductPicker && (
+        <OrderProductPicker
+          products={products.filter(p => p.active !== false)}
+          alreadyAdded={orderItems.map(i => i.productId)}
+          onSelect={(product) => {
+            addItemMutation.mutate({ productId: product.id, quantity: 1, unitPrice: product.price });
+            setShowProductPicker(false);
+          }}
+          onClose={() => setShowProductPicker(false)}
+        />
       )}
 
       <Card>
@@ -344,6 +424,72 @@ export default function OrderDetail({
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function OrderProductPicker({ products, alreadyAdded, onSelect, onClose }: {
+  products: Product[];
+  alreadyAdded: number[];
+  onSelect: (p: Product) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const filtered = products.filter(p =>
+    p.name.toLowerCase().includes(search.toLowerCase()) ||
+    (p.category && p.category.toLowerCase().includes(search.toLowerCase())) ||
+    (p.sku && p.sku.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-background rounded-lg shadow-xl w-full max-w-md max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="p-4 border-b">
+          <h3 className="font-semibold mb-2">Adicionar Produto ao Pedido</h3>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              data-testid="input-search-product-detail"
+              placeholder="Buscar produto..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-9"
+              autoFocus
+            />
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2">
+          {filtered.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">Nenhum produto encontrado</p>
+          ) : (
+            <div className="space-y-1">
+              {filtered.map(product => {
+                const isAdded = alreadyAdded.includes(product.id);
+                return (
+                  <button
+                    key={product.id}
+                    className={`w-full text-left p-3 rounded-md hover:bg-muted transition-colors flex items-center justify-between ${isAdded ? "opacity-50" : ""}`}
+                    onClick={() => onSelect(product)}
+                    data-testid={`picker-detail-product-${product.id}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate">{product.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {product.category && <span className="text-xs text-muted-foreground">{product.category}</span>}
+                        <span className="text-xs text-muted-foreground">SKU: {product.sku}</span>
+                      </div>
+                    </div>
+                    <div className="text-right ml-3">
+                      <p className="font-semibold text-sm">R$ {parseFloat(product.price).toFixed(2)}</p>
+                      {isAdded && <Badge variant="secondary" className="text-[10px]">Já adicionado</Badge>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

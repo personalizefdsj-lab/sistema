@@ -273,6 +273,44 @@ export async function registerRoutes(
   app.get("/api/orders/:id/items", requireAuth, async (req, res) => {
     res.json(await storage.getOrderItems(parseInt(req.params.id)));
   });
+  app.post("/api/orders/:id/items", requireAuth, async (req, res) => {
+    try {
+      const orderId = parseInt(req.params.id);
+      const order = await storage.getOrder(orderId, req.user!.companyId!);
+      if (!order) return res.status(404).json({ message: "Pedido não encontrado" });
+      const { productId, quantity, unitPrice, variation } = req.body;
+      const item = await storage.createOrderItem({ orderId, productId, quantity, unitPrice, variation: variation || null });
+      res.json(item);
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+  app.patch("/api/orders/:id/items/:itemId", requireAuth, async (req, res) => {
+    try {
+      const orderId = parseInt(req.params.id);
+      const order = await storage.getOrder(orderId, req.user!.companyId!);
+      if (!order) return res.status(404).json({ message: "Pedido não encontrado" });
+      const items = await storage.getOrderItems(orderId);
+      const item = items.find(i => i.id === parseInt(req.params.itemId));
+      if (!item) return res.status(404).json({ message: "Item não encontrado neste pedido" });
+      const { quantity, unitPrice } = req.body;
+      const updated = await storage.updateOrderItem(item.id, {
+        quantity: quantity !== undefined ? quantity : item.quantity,
+        unitPrice: unitPrice !== undefined ? unitPrice : item.unitPrice,
+      });
+      res.json(updated);
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+  app.delete("/api/orders/:id/items/:itemId", requireAuth, async (req, res) => {
+    try {
+      const orderId = parseInt(req.params.id);
+      const order = await storage.getOrder(orderId, req.user!.companyId!);
+      if (!order) return res.status(404).json({ message: "Pedido não encontrado" });
+      const items = await storage.getOrderItems(orderId);
+      const item = items.find(i => i.id === parseInt(req.params.itemId));
+      if (!item) return res.status(404).json({ message: "Item não encontrado neste pedido" });
+      await storage.deleteOrderItem(item.id);
+      res.json({ ok: true });
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
 
   app.get("/api/messages/:clientId", requireAuth, async (req, res) => {
     res.json(await storage.getMessages(req.user!.companyId!, parseInt(req.params.clientId)));
