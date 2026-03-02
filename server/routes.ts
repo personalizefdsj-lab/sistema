@@ -28,6 +28,12 @@ const createOrderSchema = z.object({
   urgent: z.boolean().optional().default(false),
   totalValue: z.string().optional().default("0"),
   deliveryDate: z.string().optional().nullable(),
+  items: z.array(z.object({
+    productId: z.number().int().positive(),
+    quantity: z.number().int().positive(),
+    unitPrice: z.string(),
+    variation: z.string().optional().nullable(),
+  })).optional(),
 });
 
 const updateOrderSchema = z.object({
@@ -191,11 +197,21 @@ export async function registerRoutes(
       const data = createOrderSchema.parse(req.body);
       const nextNum = await storage.getNextOrderNumber(companyId);
       const code = `FDJ-${new Date().getFullYear()}-${String(nextNum).padStart(4, "0")}`;
-      const order = await storage.createOrder({
-        ...data, companyId, code, status: "received", financialStatus: "pending",
-        receivedValue: "0", kanbanOrder: 0,
+      const orderData: any = {
+        clientId: data.clientId, companyId, code, status: "received", financialStatus: "pending",
+        receivedValue: "0", kanbanOrder: 0, urgent: data.urgent,
+        description: data.description,
+        totalValue: data.totalValue,
         deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : null,
-      } as any);
+      };
+      const order = await storage.createOrder(orderData);
+
+      if (data.items && data.items.length > 0) {
+        for (const item of data.items) {
+          await storage.createOrderItem({ orderId: order.id, productId: item.productId, quantity: item.quantity, unitPrice: item.unitPrice, variation: item.variation || null });
+        }
+      }
+
       await storage.createOrderHistory({ orderId: order.id, companyId, fromStatus: null, toStatus: "received", changedBy: req.user!.name });
       res.json(order);
     } catch (err: any) { res.status(400).json({ message: err.message }); }

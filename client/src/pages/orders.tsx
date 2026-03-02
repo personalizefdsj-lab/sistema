@@ -14,10 +14,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { ORDER_STATUSES, ORDER_STATUS_LABELS, FINANCIAL_STATUS_LABELS } from "@shared/schema";
-import type { Order, Client } from "@shared/schema";
+import type { Order, Client, Product } from "@shared/schema";
 import {
   Plus, Search, AlertTriangle, List, Columns3, Calendar,
-  ChevronRight, DollarSign, Clock, Phone, GripVertical, ClipboardList
+  ChevronRight, DollarSign, Clock, Phone, GripVertical, ClipboardList,
+  UserPlus, Trash2, Minus, ShoppingBag
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -39,6 +40,14 @@ const financialColors: Record<string, string> = {
   pending: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
 };
 
+type OrderItemDraft = {
+  productId: number;
+  productName: string;
+  quantity: number;
+  unitPrice: string;
+  variation?: string;
+};
+
 export default function OrdersPage() {
   const { toast } = useToast();
   const [view, setView] = useState<"list" | "kanban">("list");
@@ -49,22 +58,6 @@ export default function OrdersPage() {
 
   const { data: orders = [], isLoading } = useQuery<Order[]>({ queryKey: ["/api/orders"] });
   const { data: clients = [] } = useQuery<Client[]>({ queryKey: ["/api/clients"] });
-
-  const createMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", "/api/orders", data);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
-      setCreateOpen(false);
-      toast({ title: "Pedido criado com sucesso" });
-    },
-    onError: (err: any) => {
-      toast({ title: "Erro", description: err.message, variant: "destructive" });
-    },
-  });
 
   const updateStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: number; status: string }) => {
@@ -84,19 +77,6 @@ export default function OrdersPage() {
     const matchesStatus = statusFilter === "all" || o.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
-
-  const handleCreate = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const form = new FormData(e.currentTarget);
-    createMutation.mutate({
-      clientId: parseInt(form.get("clientId") as string),
-      description: form.get("description"),
-      urgent: form.get("urgent") === "on",
-      totalValue: form.get("totalValue") || "0",
-      receivedValue: "0",
-      deliveryDate: form.get("deliveryDate") || null,
-    });
-  };
 
   const getClientName = (clientId: number) =>
     clients.find(c => c.id === clientId)?.name || "—";
@@ -133,53 +113,10 @@ export default function OrdersPage() {
             {orders.length} pedido{orders.length !== 1 ? "s" : ""} no total
           </p>
         </div>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-new-order">
-              <Plus className="w-4 h-4 mr-2" />
-              Novo Pedido
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Criar Novo Pedido</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleCreate} className="space-y-4">
-              <div className="space-y-2">
-                <Label>Cliente</Label>
-                <Select name="clientId" required>
-                  <SelectTrigger data-testid="select-client">
-                    <SelectValue placeholder="Selecione o cliente" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clients.map(c => (
-                      <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Descrição</Label>
-                <Textarea name="description" data-testid="input-order-description" />
-              </div>
-              <div className="space-y-2">
-                <Label>Valor Total (R$)</Label>
-                <Input name="totalValue" type="number" step="0.01" min="0" data-testid="input-order-value" />
-              </div>
-              <div className="space-y-2">
-                <Label>Previsão de Entrega</Label>
-                <Input name="deliveryDate" type="date" data-testid="input-delivery-date" />
-              </div>
-              <div className="flex items-center gap-2">
-                <Switch name="urgent" id="urgent" data-testid="switch-urgent" />
-                <Label htmlFor="urgent">Pedido Urgente</Label>
-              </div>
-              <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-create-order">
-                {createMutation.isPending ? "Criando..." : "Criar Pedido"}
-              </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
+        <Button data-testid="button-new-order" onClick={() => setCreateOpen(true)}>
+          <Plus className="w-4 h-4 mr-2" />
+          Novo Pedido
+        </Button>
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
@@ -243,6 +180,406 @@ export default function OrdersPage() {
           onStatusChange={(id, status) => updateStatusMutation.mutate({ id, status })}
         />
       )}
+
+      <CreateOrderDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        clients={clients}
+      />
+    </div>
+  );
+}
+
+function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onOpenChange: (v: boolean) => void; clients: Client[] }) {
+  const { toast } = useToast();
+  const [clientMode, setClientMode] = useState<"existing" | "new">("existing");
+  const [selectedClientId, setSelectedClientId] = useState("");
+  const [newClient, setNewClient] = useState({ name: "", phone: "", email: "" });
+  const [description, setDescription] = useState("");
+  const [totalValue, setTotalValue] = useState("");
+  const [deliveryDate, setDeliveryDate] = useState("");
+  const [urgent, setUrgent] = useState(false);
+  const [orderItems, setOrderItems] = useState<OrderItemDraft[]>([]);
+  const [showProductPicker, setShowProductPicker] = useState(false);
+
+  const { data: products = [] } = useQuery<Product[]>({ queryKey: ["/api/products"] });
+  const activeProducts = products.filter(p => p.active !== false);
+
+  const itemsTotal = orderItems.reduce((sum, item) => sum + parseFloat(item.unitPrice) * item.quantity, 0);
+  const effectiveTotal = orderItems.length > 0 ? itemsTotal.toFixed(2) : totalValue;
+
+  const createClientMutation = useMutation({
+    mutationFn: async (data: { name: string; phone: string; email?: string }) => {
+      const res = await apiRequest("POST", "/api/clients", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+    },
+  });
+
+  const createOrderMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/orders", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      onOpenChange(false);
+      resetForm();
+      toast({ title: "Pedido criado com sucesso" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Erro", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const resetForm = () => {
+    setClientMode("existing");
+    setSelectedClientId("");
+    setNewClient({ name: "", phone: "", email: "" });
+    setDescription("");
+    setTotalValue("");
+    setDeliveryDate("");
+    setUrgent(false);
+    setOrderItems([]);
+  };
+
+  const addProduct = (product: Product) => {
+    setOrderItems(prev => {
+      const existing = prev.find(i => i.productId === product.id);
+      if (existing) {
+        return prev.map(i => i.productId === product.id ? { ...i, quantity: i.quantity + 1 } : i);
+      }
+      return [...prev, { productId: product.id, productName: product.name, quantity: 1, unitPrice: product.price }];
+    });
+    setShowProductPicker(false);
+  };
+
+  const updateItemQuantity = (productId: number, delta: number) => {
+    setOrderItems(prev => prev.map(i => {
+      if (i.productId === productId) {
+        const newQty = i.quantity + delta;
+        return newQty > 0 ? { ...i, quantity: newQty } : i;
+      }
+      return i;
+    }));
+  };
+
+  const removeItem = (productId: number) => {
+    setOrderItems(prev => prev.filter(i => i.productId !== productId));
+  };
+
+  const handleSubmit = async () => {
+    try {
+      let clientId: number;
+
+      if (clientMode === "new") {
+        if (!newClient.name || !newClient.phone) {
+          toast({ title: "Preencha nome e telefone do cliente", variant: "destructive" });
+          return;
+        }
+        const created = await createClientMutation.mutateAsync({
+          name: newClient.name,
+          phone: newClient.phone,
+          email: newClient.email || undefined,
+        });
+        clientId = created.id;
+      } else {
+        if (!selectedClientId) {
+          toast({ title: "Selecione um cliente", variant: "destructive" });
+          return;
+        }
+        clientId = parseInt(selectedClientId);
+      }
+
+      createOrderMutation.mutate({
+        clientId,
+        description: description || null,
+        urgent,
+        totalValue: effectiveTotal || "0",
+        deliveryDate: deliveryDate || null,
+        items: orderItems.length > 0 ? orderItems.map(i => ({
+          productId: i.productId,
+          quantity: i.quantity,
+          unitPrice: i.unitPrice,
+          variation: null,
+        })) : undefined,
+      });
+    } catch (err: any) {
+      toast({ title: "Erro ao criar cliente", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const isPending = createClientMutation.isPending || createOrderMutation.isPending;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) resetForm(); }}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Criar Novo Pedido</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-5">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-semibold">Cliente</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setClientMode(clientMode === "existing" ? "new" : "existing")}
+                data-testid="button-toggle-client-mode"
+              >
+                {clientMode === "existing" ? (
+                  <><UserPlus className="w-4 h-4 mr-1" /> Novo Cliente</>
+                ) : (
+                  <><Search className="w-4 h-4 mr-1" /> Cliente Existente</>
+                )}
+              </Button>
+            </div>
+
+            {clientMode === "existing" ? (
+              <Select value={selectedClientId} onValueChange={setSelectedClientId}>
+                <SelectTrigger data-testid="select-client">
+                  <SelectValue placeholder="Selecione o cliente" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clients.map(c => (
+                    <SelectItem key={c.id} value={String(c.id)}>
+                      {c.name} — {c.phone}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="space-y-2 border rounded-lg p-3 bg-muted/30">
+                <div>
+                  <Label className="text-xs">Nome *</Label>
+                  <Input
+                    data-testid="input-new-client-name"
+                    value={newClient.name}
+                    onChange={e => setNewClient(p => ({ ...p, name: e.target.value }))}
+                    placeholder="Nome do cliente"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Telefone *</Label>
+                  <Input
+                    data-testid="input-new-client-phone"
+                    value={newClient.phone}
+                    onChange={e => setNewClient(p => ({ ...p, phone: e.target.value }))}
+                    placeholder="(00) 00000-0000"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Email</Label>
+                  <Input
+                    data-testid="input-new-client-email"
+                    type="email"
+                    value={newClient.email}
+                    onChange={e => setNewClient(p => ({ ...p, email: e.target.value }))}
+                    placeholder="email@exemplo.com"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-semibold">Produtos</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowProductPicker(true)}
+                data-testid="button-add-product-to-order"
+              >
+                <Plus className="w-4 h-4 mr-1" /> Adicionar Produto
+              </Button>
+            </div>
+
+            {orderItems.length > 0 && (
+              <div className="space-y-2">
+                {orderItems.map(item => (
+                  <div key={item.productId} className="flex items-center gap-2 border rounded-lg p-2" data-testid={`order-item-${item.productId}`}>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{item.productName}</p>
+                      <p className="text-xs text-muted-foreground">R$ {parseFloat(item.unitPrice).toFixed(2)} cada</p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button type="button" size="icon" variant="outline" className="h-7 w-7"
+                        data-testid={`button-item-minus-${item.productId}`}
+                        onClick={() => updateItemQuantity(item.productId, -1)}>
+                        <Minus className="w-3 h-3" />
+                      </Button>
+                      <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
+                      <Button type="button" size="icon" variant="outline" className="h-7 w-7"
+                        data-testid={`button-item-plus-${item.productId}`}
+                        onClick={() => updateItemQuantity(item.productId, 1)}>
+                        <Plus className="w-3 h-3" />
+                      </Button>
+                      <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive"
+                        data-testid={`button-item-remove-${item.productId}`}
+                        onClick={() => removeItem(item.productId)}>
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                    <p className="text-sm font-semibold w-20 text-right">
+                      R$ {(parseFloat(item.unitPrice) * item.quantity).toFixed(2)}
+                    </p>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between pt-2 border-t">
+                  <span className="text-sm font-semibold">Total dos Produtos</span>
+                  <span className="text-sm font-bold" data-testid="text-items-total">R$ {itemsTotal.toFixed(2)}</span>
+                </div>
+              </div>
+            )}
+
+            {orderItems.length === 0 && (
+              <p className="text-xs text-muted-foreground">Nenhum produto adicionado. Você pode adicionar produtos ou definir o valor manualmente abaixo.</p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label>Descrição</Label>
+            <Textarea
+              data-testid="input-order-description"
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="Observações do pedido..."
+            />
+          </div>
+
+          {orderItems.length === 0 && (
+            <div className="space-y-2">
+              <Label>Valor Total (R$)</Label>
+              <Input
+                data-testid="input-order-value"
+                type="number"
+                step="0.01"
+                min="0"
+                value={totalValue}
+                onChange={e => setTotalValue(e.target.value)}
+              />
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label>Previsão de Entrega</Label>
+            <Input
+              data-testid="input-delivery-date"
+              type="date"
+              value={deliveryDate}
+              onChange={e => setDeliveryDate(e.target.value)}
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={urgent}
+              onCheckedChange={setUrgent}
+              id="urgent"
+              data-testid="switch-urgent"
+            />
+            <Label htmlFor="urgent">Pedido Urgente</Label>
+          </div>
+
+          <Button
+            className="w-full"
+            disabled={isPending}
+            data-testid="button-create-order"
+            onClick={handleSubmit}
+          >
+            {isPending ? "Criando..." : "Criar Pedido"}
+          </Button>
+        </div>
+
+        {showProductPicker && (
+          <ProductPickerDialog
+            products={activeProducts}
+            onSelect={addProduct}
+            onClose={() => setShowProductPicker(false)}
+            alreadyAdded={orderItems.map(i => i.productId)}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ProductPickerDialog({ products, onSelect, onClose, alreadyAdded }: {
+  products: Product[];
+  onSelect: (p: Product) => void;
+  onClose: () => void;
+  alreadyAdded: number[];
+}) {
+  const [search, setSearch] = useState("");
+  const filtered = products.filter(p =>
+    p.name.toLowerCase().includes(search.toLowerCase()) ||
+    (p.category && p.category.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-background rounded-lg shadow-xl w-full max-w-md max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="p-4 border-b">
+          <h3 className="font-semibold mb-2">Selecionar Produto</h3>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              data-testid="input-search-product-picker"
+              placeholder="Buscar produto..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-9"
+              autoFocus
+            />
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2">
+          {filtered.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">Nenhum produto encontrado</p>
+          ) : (
+            <div className="space-y-1">
+              {filtered.map(product => {
+                const isAdded = alreadyAdded.includes(product.id);
+                return (
+                  <button
+                    key={product.id}
+                    className={`w-full text-left p-3 rounded-md hover:bg-muted transition-colors flex items-center justify-between ${isAdded ? "opacity-50" : ""}`}
+                    onClick={() => onSelect(product)}
+                    data-testid={`picker-product-${product.id}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate">{product.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {product.category && <span className="text-xs text-muted-foreground">{product.category}</span>}
+                        <span className="text-xs text-muted-foreground">SKU: {product.sku}</span>
+                        {product.productType === "physical" && (
+                          <span className={`text-xs ${(product.stockQuantity || 0) <= 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                            Estoque: {product.stockQuantity || 0}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right ml-3">
+                      <p className="font-semibold text-sm">R$ {parseFloat(product.price).toFixed(2)}</p>
+                      {isAdded && <Badge variant="secondary" className="text-[10px]">Já adicionado</Badge>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <div className="p-3 border-t">
+          <Button variant="outline" className="w-full" onClick={onClose} data-testid="button-close-product-picker">Fechar</Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -288,6 +625,12 @@ function ListView({
                       <Badge variant="destructive" className="text-xs">
                         <AlertTriangle className="w-3 h-3 mr-1" />
                         Urgente
+                      </Badge>
+                    )}
+                    {order.source === "online" && (
+                      <Badge variant="secondary" className="text-xs">
+                        <ShoppingBag className="w-3 h-3 mr-1" />
+                        Online
                       </Badge>
                     )}
                   </div>
