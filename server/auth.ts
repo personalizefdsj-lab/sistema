@@ -36,6 +36,8 @@ export function setupAuth(app: Express) {
     tableName: "session",
   });
 
+  app.set("trust proxy", 1);
+
   app.use(
     session({
       store: sessionStore,
