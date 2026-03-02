@@ -17,7 +17,7 @@ import { ORDER_STATUSES, ORDER_STATUS_LABELS, FINANCIAL_STATUS_LABELS } from "@s
 import type { Order, Client } from "@shared/schema";
 import {
   Plus, Search, AlertTriangle, List, Columns3, Calendar,
-  ChevronRight, DollarSign, Clock, Phone, GripVertical
+  ChevronRight, DollarSign, Clock, Phone, GripVertical, ClipboardList
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
