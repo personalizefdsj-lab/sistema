@@ -205,8 +205,9 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
   const { data: products = [] } = useQuery<Product[]>({ queryKey: ["/api/products"] });
   const activeProducts = products.filter(p => p.active !== false);
 
+  const [customTotal, setCustomTotal] = useState("");
   const itemsTotal = orderItems.reduce((sum, item) => sum + parseFloat(item.unitPrice) * item.quantity, 0);
-  const effectiveTotal = orderItems.length > 0 ? itemsTotal.toFixed(2) : totalValue;
+  const effectiveTotal = customTotal ? customTotal : (orderItems.length > 0 ? itemsTotal.toFixed(2) : totalValue);
 
   const createClientMutation = useMutation({
     mutationFn: async (data: { name: string; phone: string; email?: string }) => {
@@ -245,15 +246,25 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
     setDeliveryDate("");
     setUrgent(false);
     setOrderItems([]);
+    setCustomTotal("");
+  };
+
+  const getApplicablePrice = (product: Product, quantity: number) => {
+    if (product.wholesalePrice && product.wholesaleMinQty && quantity >= product.wholesaleMinQty) {
+      return product.wholesalePrice;
+    }
+    return product.price;
   };
 
   const addProduct = (product: Product) => {
     setOrderItems(prev => {
       const existing = prev.find(i => i.productId === product.id);
       if (existing) {
-        return prev.map(i => i.productId === product.id ? { ...i, quantity: i.quantity + 1 } : i);
+        const newQty = existing.quantity + 1;
+        const newPrice = getApplicablePrice(product, newQty);
+        return prev.map(i => i.productId === product.id ? { ...i, quantity: newQty, unitPrice: newPrice } : i);
       }
-      return [...prev, { productId: product.id, productName: product.name, quantity: 1, unitPrice: product.price }];
+      return [...prev, { productId: product.id, productName: product.name, quantity: 1, unitPrice: getApplicablePrice(product, 1) }];
     });
     setShowProductPicker(false);
   };
@@ -262,7 +273,10 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
     setOrderItems(prev => prev.map(i => {
       if (i.productId === productId) {
         const newQty = i.quantity + delta;
-        return newQty > 0 ? { ...i, quantity: newQty } : i;
+        if (newQty <= 0) return i;
+        const product = products.find(p => p.id === productId);
+        const newPrice = product ? getApplicablePrice(product, newQty) : i.unitPrice;
+        return { ...i, quantity: newQty, unitPrice: newPrice };
       }
       return i;
     }));
@@ -403,38 +417,47 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
 
             {orderItems.length > 0 && (
               <div className="space-y-2">
-                {orderItems.map(item => (
-                  <div key={item.productId} className="flex items-center gap-2 border rounded-lg p-2" data-testid={`order-item-${item.productId}`}>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{item.productName}</p>
-                      <p className="text-xs text-muted-foreground">R$ {parseFloat(item.unitPrice).toFixed(2)} cada</p>
+                {orderItems.map(item => {
+                  const product = products.find(p => p.id === item.productId);
+                  const isWholesale = product?.wholesalePrice && product?.wholesaleMinQty && item.quantity >= product.wholesaleMinQty;
+                  return (
+                    <div key={item.productId} className="flex items-center gap-2 border rounded-lg p-2" data-testid={`order-item-${item.productId}`}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{item.productName}</p>
+                        <div className="flex items-center gap-1">
+                          <p className="text-xs text-muted-foreground">R$ {parseFloat(item.unitPrice).toFixed(2)} cada</p>
+                          {isWholesale && (
+                            <Badge variant="secondary" className="text-[10px] px-1 py-0" data-testid={`badge-wholesale-${item.productId}`}>Atacado</Badge>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button type="button" size="icon" variant="outline" className="h-7 w-7"
+                          data-testid={`button-item-minus-${item.productId}`}
+                          onClick={() => updateItemQuantity(item.productId, -1)}>
+                          <Minus className="w-3 h-3" />
+                        </Button>
+                        <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
+                        <Button type="button" size="icon" variant="outline" className="h-7 w-7"
+                          data-testid={`button-item-plus-${item.productId}`}
+                          onClick={() => updateItemQuantity(item.productId, 1)}>
+                          <Plus className="w-3 h-3" />
+                        </Button>
+                        <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive"
+                          data-testid={`button-item-remove-${item.productId}`}
+                          onClick={() => removeItem(item.productId)}>
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+                      <p className="text-sm font-semibold w-20 text-right">
+                        R$ {(parseFloat(item.unitPrice) * item.quantity).toFixed(2)}
+                      </p>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <Button type="button" size="icon" variant="outline" className="h-7 w-7"
-                        data-testid={`button-item-minus-${item.productId}`}
-                        onClick={() => updateItemQuantity(item.productId, -1)}>
-                        <Minus className="w-3 h-3" />
-                      </Button>
-                      <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
-                      <Button type="button" size="icon" variant="outline" className="h-7 w-7"
-                        data-testid={`button-item-plus-${item.productId}`}
-                        onClick={() => updateItemQuantity(item.productId, 1)}>
-                        <Plus className="w-3 h-3" />
-                      </Button>
-                      <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive"
-                        data-testid={`button-item-remove-${item.productId}`}
-                        onClick={() => removeItem(item.productId)}>
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
-                    </div>
-                    <p className="text-sm font-semibold w-20 text-right">
-                      R$ {(parseFloat(item.unitPrice) * item.quantity).toFixed(2)}
-                    </p>
-                  </div>
-                ))}
+                  );
+                })}
                 <div className="flex items-center justify-between pt-2 border-t">
                   <span className="text-sm font-semibold">Total dos Produtos</span>
-                  <span className="text-sm font-bold" data-testid="text-items-total">R$ {itemsTotal.toFixed(2)}</span>
+                  <span className={`text-sm font-bold ${customTotal ? "line-through text-muted-foreground" : ""}`} data-testid="text-items-total">R$ {itemsTotal.toFixed(2)}</span>
                 </div>
               </div>
             )}
@@ -454,9 +477,28 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
             />
           </div>
 
-          {orderItems.length === 0 && (
-            <div className="space-y-2">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
               <Label>Valor Total (R$)</Label>
+              {orderItems.length > 0 && customTotal && (
+                <Button type="button" variant="ghost" size="sm" className="h-6 text-xs"
+                  data-testid="button-clear-custom-total"
+                  onClick={() => setCustomTotal("")}>
+                  Usar valor calculado
+                </Button>
+              )}
+            </div>
+            {orderItems.length > 0 ? (
+              <Input
+                data-testid="input-order-value"
+                type="number"
+                step="0.01"
+                min="0"
+                value={customTotal}
+                onChange={e => setCustomTotal(e.target.value)}
+                placeholder={`${itemsTotal.toFixed(2)} (calculado automaticamente)`}
+              />
+            ) : (
               <Input
                 data-testid="input-order-value"
                 type="number"
@@ -464,9 +506,15 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
                 min="0"
                 value={totalValue}
                 onChange={e => setTotalValue(e.target.value)}
+                placeholder="0.00"
               />
-            </div>
-          )}
+            )}
+            {orderItems.length > 0 && customTotal && parseFloat(customTotal) !== itemsTotal && (
+              <p className="text-xs text-amber-600 dark:text-amber-400" data-testid="text-custom-total-warning">
+                Valor alterado manualmente (calculado: R$ {itemsTotal.toFixed(2)})
+              </p>
+            )}
+          </div>
 
           <div className="space-y-2">
             <Label>Previsão de Entrega</Label>
@@ -568,6 +616,11 @@ function ProductPickerDialog({ products, onSelect, onClose, alreadyAdded }: {
                     </div>
                     <div className="text-right ml-3">
                       <p className="font-semibold text-sm">R$ {parseFloat(product.price).toFixed(2)}</p>
+                      {product.wholesalePrice && (
+                        <p className="text-[10px] text-muted-foreground">
+                          Atacado: R$ {parseFloat(product.wholesalePrice).toFixed(2)} (mín. {product.wholesaleMinQty || 1})
+                        </p>
+                      )}
                       {isAdded && <Badge variant="secondary" className="text-[10px]">Já adicionado</Badge>}
                     </div>
                   </button>
