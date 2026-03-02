@@ -70,6 +70,23 @@ export default function OrdersPage() {
     },
   });
 
+  const deleteOrderMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/orders/${id}`);
+      return id;
+    },
+    onSuccess: (deletedId) => {
+      setSelectedOrder(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      queryClient.removeQueries({ queryKey: ["/api/orders", deletedId] });
+      toast({ title: "Pedido excluído com sucesso" });
+    },
+    onError: () => {
+      toast({ title: "Erro ao excluir pedido", variant: "destructive" });
+    },
+  });
+
   const filteredOrders = orders.filter(o => {
     const matchesSearch = search === "" ||
       o.code.toLowerCase().includes(search.toLowerCase()) ||
@@ -100,6 +117,8 @@ export default function OrdersPage() {
         orderId={selectedOrder}
         onBack={() => setSelectedOrder(null)}
         clients={clients}
+        onDelete={(id: number) => deleteOrderMutation.mutate(id)}
+        isDeleting={deleteOrderMutation.isPending}
       />
     );
   }
@@ -171,6 +190,7 @@ export default function OrdersPage() {
           getClientName={getClientName}
           onSelect={setSelectedOrder}
           sendWhatsApp={sendWhatsApp}
+          onDelete={(id: number) => deleteOrderMutation.mutate(id)}
         />
       ) : (
         <KanbanView
@@ -681,12 +701,15 @@ function ListView({
   getClientName,
   onSelect,
   sendWhatsApp,
+  onDelete,
 }: {
   orders: Order[];
   getClientName: (id: number) => string;
   onSelect: (id: number) => void;
   sendWhatsApp: (o: Order) => void;
+  onDelete: (id: number) => void;
 }) {
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   if (orders.length === 0) {
     return (
       <div className="text-center py-16 text-muted-foreground" data-testid="text-no-orders">
@@ -755,6 +778,35 @@ function ListView({
                 >
                   <Phone className="w-4 h-4 text-emerald-600" />
                 </Button>
+                {confirmDeleteId === order.id ? (
+                  <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => { onDelete(order.id); setConfirmDeleteId(null); }}
+                      data-testid={`button-confirm-delete-${order.id}`}
+                    >
+                      Confirmar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setConfirmDeleteId(null)}
+                      data-testid={`button-cancel-delete-${order.id}`}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(order.id); }}
+                    data-testid={`button-delete-${order.id}`}
+                  >
+                    <Trash2 className="w-4 h-4 text-red-500" />
+                  </Button>
+                )}
                 <ChevronRight className="w-4 h-4 text-muted-foreground" />
               </div>
             </div>

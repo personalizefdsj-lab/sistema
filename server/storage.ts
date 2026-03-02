@@ -38,6 +38,7 @@ export interface IStorage {
   createOrder(order: InsertOrder): Promise<Order>;
   updateOrder(id: number, companyId: number, data: Partial<InsertOrder>): Promise<Order | undefined>;
   getNextOrderNumber(companyId: number): Promise<number>;
+  deleteOrder(id: number, companyId: number): Promise<void>;
 
   getOrderHistory(orderId: number, companyId: number): Promise<OrderHistory[]>;
   createOrderHistory(history: InsertOrderHistory): Promise<OrderHistory>;
@@ -198,6 +199,14 @@ export class DatabaseStorage implements IStorage {
     const result = await db.select({ count: sql<number>`count(*)` })
       .from(orders).where(eq(orders.companyId, companyId));
     return (result[0]?.count || 0) + 1;
+  }
+
+  async deleteOrder(id: number, companyId: number): Promise<void> {
+    const order = await this.getOrder(id, companyId);
+    if (!order) return;
+    await db.delete(orderItems).where(eq(orderItems.orderId, id));
+    await db.delete(orderHistory).where(eq(orderHistory.orderId, id));
+    await db.delete(orders).where(and(eq(orders.id, id), eq(orders.companyId, companyId)));
   }
 
   async getOrderHistory(orderId: number, companyId: number): Promise<OrderHistory[]> {

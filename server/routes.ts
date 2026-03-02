@@ -267,6 +267,17 @@ export async function registerRoutes(
       res.json(await storage.updateOrder(orderId, companyId, data as any));
     } catch (err: any) { res.status(400).json({ message: err.message }); }
   });
+  app.delete("/api/orders/:id", requireAuth, async (req, res) => {
+    try {
+      const orderId = parseInt(req.params.id);
+      const companyId = req.user!.companyId!;
+      const order = await storage.getOrder(orderId, companyId);
+      if (!order) return res.status(404).json({ message: "Pedido não encontrado" });
+      await storage.deleteOrder(orderId, companyId);
+      res.json({ success: true });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
   app.get("/api/orders/:id/history", requireAuth, async (req, res) => {
     res.json(await storage.getOrderHistory(parseInt(req.params.id), req.user!.companyId!));
   });

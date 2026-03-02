@@ -30,13 +30,18 @@ export default function OrderDetail({
   orderId,
   onBack,
   clients,
+  onDelete,
+  isDeleting,
 }: {
   orderId: number;
   onBack: () => void;
   clients: Client[];
+  onDelete?: (id: number) => void;
+  isDeleting?: boolean;
 }) {
   const { toast } = useToast();
   const [showProductPicker, setShowProductPicker] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const { data: order, isLoading } = useQuery<Order>({
     queryKey: ["/api/orders", orderId],
@@ -147,6 +152,38 @@ export default function OrderDetail({
             Entrada: {format(new Date(order.createdAt), "dd/MM/yyyy HH:mm")}
           </p>
         </div>
+        {onDelete && (
+          confirmDelete ? (
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={isDeleting}
+                onClick={() => onDelete(orderId)}
+                data-testid="button-confirm-delete-order"
+              >
+                {isDeleting ? "Excluindo..." : "Confirmar exclusão"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setConfirmDelete(false)}
+                data-testid="button-cancel-delete-order"
+              >
+                Cancelar
+              </Button>
+            </div>
+          ) : (
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setConfirmDelete(true)}
+              data-testid="button-delete-order"
+            >
+              <Trash2 className="w-4 h-4 text-red-500" />
+            </Button>
+          )
+        )}
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-2">
