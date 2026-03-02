@@ -426,6 +426,61 @@ export async function registerRoutes(
     res.json({ order, history, companyName: company?.name, clientName: client?.name });
   });
 
+  // Client portal endpoints (public, identified by phone)
+  app.get("/api/portal/:slug/auth", async (req, res) => {
+    const phone = req.query.phone as string;
+    if (!phone) return res.status(400).json({ message: "Telefone é obrigatório" });
+    const company = await storage.getCompanyBySlug(req.params.slug);
+    if (!company || company.status !== "active") return res.status(404).json({ message: "Empresa não encontrada" });
+    const client = await storage.getClientByPhone(phone, company.id);
+    if (!client) return res.status(404).json({ message: "Nenhum cadastro encontrado com este telefone" });
+    const clientOrders = await storage.getOrdersByClient(client.id, company.id);
+    res.json({
+      client: { id: client.id, name: client.name, phone: client.phone, email: client.email },
+      company: { id: company.id, name: company.name, slug: company.slug, logoUrl: company.logoUrl, primaryColor: company.primaryColor, phone: company.phone },
+      orders: clientOrders,
+    });
+  });
+
+  app.get("/api/portal/:slug/orders/:orderId", async (req, res) => {
+    const phone = req.query.phone as string;
+    if (!phone) return res.status(400).json({ message: "Telefone é obrigatório" });
+    const company = await storage.getCompanyBySlug(req.params.slug);
+    if (!company || company.status !== "active") return res.status(404).json({ message: "Empresa não encontrada" });
+    const client = await storage.getClientByPhone(phone, company.id);
+    if (!client) return res.status(404).json({ message: "Cliente não encontrado" });
+    const order = await storage.getOrder(parseInt(req.params.orderId), company.id);
+    if (!order || order.clientId !== client.id) return res.status(404).json({ message: "Pedido não encontrado" });
+    const history = await storage.getOrderHistory(order.id, company.id);
+    const items = await storage.getOrderItems(order.id);
+    res.json({ order, history, items });
+  });
+
+  app.get("/api/portal/:slug/messages", async (req, res) => {
+    const phone = req.query.phone as string;
+    if (!phone) return res.status(400).json({ message: "Telefone é obrigatório" });
+    const company = await storage.getCompanyBySlug(req.params.slug);
+    if (!company || company.status !== "active") return res.status(404).json({ message: "Empresa não encontrada" });
+    const client = await storage.getClientByPhone(phone, company.id);
+    if (!client) return res.status(404).json({ message: "Cliente não encontrado" });
+    const msgs = await storage.getMessages(company.id, client.id);
+    res.json(msgs);
+  });
+
+  app.post("/api/portal/:slug/messages", async (req, res) => {
+    try {
+      const phone = req.body.phone as string;
+      const content = req.body.content as string;
+      if (!phone || !content) return res.status(400).json({ message: "Telefone e mensagem são obrigatórios" });
+      const company = await storage.getCompanyBySlug(req.params.slug);
+      if (!company || company.status !== "active") return res.status(404).json({ message: "Empresa não encontrada" });
+      const client = await storage.getClientByPhone(phone, company.id);
+      if (!client) return res.status(404).json({ message: "Cliente não encontrado" });
+      const msg = await storage.createMessage({ companyId: company.id, clientId: client.id, content, senderType: "client" });
+      res.json(msg);
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+
   return httpServer;
 }
 

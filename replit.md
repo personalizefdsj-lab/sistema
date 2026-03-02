@@ -59,6 +59,7 @@ client/src/components/ - Shared components
 - `/admin` - Super admin panel
 - `/loja/:slug` - Public store (no auth)
 - `/rastrear/:code` - Order tracking (no auth)
+- `/portal/:slug` - Client portal (no auth, phone-based identification)
 
 ## Demo Credentials
 - **Super Admin**: username: `superadmin`, password: `admin123`

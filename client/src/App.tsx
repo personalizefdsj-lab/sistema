@@ -19,6 +19,7 @@ import StockPage from "@/pages/stock";
 import SalesDashboardPage from "@/pages/sales-dashboard";
 import PublicStore from "@/pages/store";
 import TrackingPage from "@/pages/tracking";
+import ClientPortal from "@/pages/client-portal";
 
 function ProtectedRouter() {
   const { user, isLoading } = useAuth();
@@ -100,6 +101,7 @@ function App() {
           <Toaster />
           <Switch>
             <Route path="/loja/:slug" component={PublicStore} />
+            <Route path="/portal/:slug" component={ClientPortal} />
             <Route path="/rastrear/:code" component={TrackingPage} />
             <Route path="/rastrear" component={TrackingPage} />
             <Route>
