@@ -1,0 +1,238 @@
+Criar um MICRO SAAS multiempresa (multi-tenant) chamado provisoriamente “Gestor de Pedidos”.
+
+OBJETIVO:
+Criar uma plataforma SaaS onde várias empresas possam criar suas próprias contas e gerenciar seus pedidos, clientes, arquivos, financeiro e comunicação interna.
+
+IMPORTANTE:
+- Sistema multiempresa.
+- Cada empresa deve ter seus próprios dados isolados.
+- Nenhuma empresa pode visualizar dados de outra.
+- Deve existir um painel de SUPER ADMIN (dono da plataforma).
+
+====================================
+1. ESTRUTURA MULTIEMPRESA
+====================================
+
+1.1 Cadastro de Empresa
+Cada empresa deve poder:
+- Criar conta
+- Informar nome da empresa
+- Número principal
+- Logo
+- Criar usuário administrador
+
+1.2 Área exclusiva (Workspace)
+Após login:
+- Cada empresa acessa apenas seus dados.
+- Todos os registros devem estar vinculados à empresa logada.
+
+1.3 Painel Super Admin (dono da plataforma)
+Criar área exclusiva para o dono do SaaS com:
+
+- Lista de empresas cadastradas
+- Status da assinatura (ativa, suspensa)
+- Data de vencimento
+- Quantidade de empresas ativas
+- Controle manual para:
+  - Ativar
+  - Suspender
+  - Excluir empresa
+
+====================================
+2. GESTÃO DE CLIENTES
+====================================
+
+- Cliente identificado pelo número de celular (único dentro da empresa).
+- Não permitir duplicidade dentro da mesma empresa.
+- Permitir editar nome e número.
+- Histórico completo de pedidos por cliente.
+- Busca inteligente ignorando:
+  - Espaços
+  - Traços
+  - Pontos
+
+====================================
+3. GESTÃO DE PEDIDOS
+====================================
+
+3.1 Código automático
+Formato:
+FDJ-ANO-NÚMERO
+Exemplo:
+FDJ-2026-0001
+
+3.2 Data automática
+Ao criar pedido:
+- Registrar automaticamente Data e Hora atuais.
+- Exibir como “Data de Entrada”.
+- Não permitir edição manual.
+
+Formato:
+DD/MM/AAAA HH:mm
+
+3.3 Status disponíveis
+- Pedido recebido
+- Em design
+- Em produção
+- Em embalagem
+- Enviado
+- Finalizado
+- Aguardando cliente
+
+3.4 Urgência
+- Campo “Urgente”.
+- Destacar visualmente no admin.
+
+3.5 Histórico interno
+- Registrar alterações de status.
+- Visível apenas para a empresa.
+
+====================================
+4. MODOS DE VISUALIZAÇÃO (ADMIN)
+====================================
+
+Adicionar alternância:
+
+Lista | Kanban | Calendário
+
+4.1 Lista
+- Tabela com filtros.
+- Exibir:
+  - Código
+  - Cliente
+  - Data de Entrada
+  - Previsão de entrega
+  - Status
+  - Status financeiro
+
+4.2 Kanban
+- Colunas por status.
+- Cards arrastáveis.
+- Arrastar entre colunas altera status.
+- Permitir reorganização manual.
+- Salvar nova ordem.
+- Card deve exibir:
+  - Código
+  - Cliente
+  - Data
+  - Indicador financeiro
+
+4.3 Calendário
+- Baseado na previsão de entrega.
+- Destacar:
+  - Urgentes
+  - Pagamento pendente
+- Clique abre detalhes.
+
+====================================
+5. UPLOAD DE ARQUIVOS
+====================================
+
+Permitir upload:
+- JPG
+- PNG
+- PDF
+- CDR
+
+- Múltiplos arquivos por pedido.
+- Cliente pode visualizar e baixar.
+- Cliente não pode excluir.
+- Admin pode visualizar e baixar.
+
+====================================
+6. CONTROLE FINANCEIRO
+====================================
+
+Por pedido:
+- Valor total
+- Valor recebido
+- Valor restante (automático)
+
+Status:
+- Pago
+- Parcial
+- Pendente
+
+Dashboard da empresa:
+- Total recebido
+- Total a receber
+- Pedidos pendentes
+
+====================================
+7. WHATSAPP MANUAL
+====================================
+
+Botão “Enviar WhatsApp”
+
+- Abrir link wa.me
+- Mensagem automática com:
+  - Nome
+  - Código
+  - Status
+  - Data de Entrada
+
+Permitir editar templates por status.
+
+====================================
+8. CHAT INTERNO (CLIENTE ↔ EMPRESA)
+====================================
+
+8.1 Cliente
+- Login com número.
+- Botão “Falar com a Empresa”.
+- Enviar mensagens.
+- Ver histórico.
+- Ver horário.
+- Indicador de visualização.
+
+8.2 Empresa
+- Área “Conversas”.
+- Lista com:
+  - Nome
+  - Última mensagem
+  - Não lidas
+- Responder em tempo real.
+- Notificação visual de nova mensagem.
+
+====================================
+9. EXPERIÊNCIA VISUAL
+====================================
+
+- Interface moderna.
+- Layout responsivo.
+- Animações suaves.
+- Stepper visual do status.
+- Cards com sombra leve.
+- Design limpo e profissional.
+
+====================================
+10. PREPARAÇÃO PARA VENDA (MICRO SAAS)
+====================================
+
+- Sistema preparado para planos de assinatura.
+- Cada empresa vinculada a um plano.
+- Estrutura pronta para futura integração com pagamento online.
+- Interface profissional.
+- Código organizado e escalável.
+- README explicando:
+  - Como rodar
+  - Estrutura
+  - Como funciona a multiempresa
+
+====================================
+ENTREGÁVEL
+====================================
+
+Micro SaaS completo com:
+
+- Multiempresa
+- Gestão de clientes
+- Gestão de pedidos
+- Kanban
+- Calendário
+- Upload de arquivos
+- Controle financeiro
+- WhatsApp manual
+- Chat interno
+- Painel Super Admin
+- Estrutura pronta para vender assinatura
