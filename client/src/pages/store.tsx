@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, ShoppingCart, Plus, Minus, X, Store as StoreIcon } from "lucide-react";
+import { Search, ShoppingCart, Plus, Minus, X, Store as StoreIcon, UserCircle } from "lucide-react";
 import type { Product } from "@shared/schema";
 import CheckoutPage from "./checkout";
 
@@ -97,14 +97,24 @@ export default function PublicStore() {
               {company?.description && <p className="text-sm text-muted-foreground">{company.description}</p>}
             </div>
           </div>
-          <Button variant="outline" className="relative" data-testid="button-open-cart" onClick={() => setShowCart(!showCart)}>
-            <ShoppingCart className="w-5 h-5" />
-            {cartCount > 0 && (
-              <span className="absolute -top-2 -right-2 w-5 h-5 rounded-full text-xs flex items-center justify-center text-white" style={{ backgroundColor: primaryColor }}>
-                {cartCount}
-              </span>
-            )}
-          </Button>
+          <div className="flex items-center gap-2">
+            <a
+              href={`/portal/${slug}`}
+              data-testid="link-client-portal"
+              className="inline-flex items-center justify-center gap-1.5 rounded-md border border-input bg-background px-3 h-9 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
+            >
+              <UserCircle className="w-4 h-4" />
+              <span className="hidden sm:inline">Meus Pedidos</span>
+            </a>
+            <Button variant="outline" className="relative" data-testid="button-open-cart" onClick={() => setShowCart(!showCart)}>
+              <ShoppingCart className="w-5 h-5" />
+              {cartCount > 0 && (
+                <span className="absolute -top-2 -right-2 w-5 h-5 rounded-full text-xs flex items-center justify-center text-white" style={{ backgroundColor: primaryColor }}>
+                  {cartCount}
+                </span>
+              )}
+            </Button>
+          </div>
         </div>
       </header>
 

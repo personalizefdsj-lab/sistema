@@ -13,6 +13,7 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   Users,
@@ -24,6 +25,7 @@ import {
   ShoppingBag,
   Warehouse,
   TrendingUp,
+  ExternalLink,
 } from "lucide-react";
 
 export function AppSidebar() {
@@ -31,6 +33,7 @@ export function AppSidebar() {
   const [location] = useLocation();
 
   const isSuperAdmin = user?.role === "superadmin";
+  const companySlug = (user as any)?.companySlug;
 
   const adminItems = [
     { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -79,6 +82,31 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        {!isSuperAdmin && companySlug && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Links Públicos</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild>
+                    <a href={`/portal/${companySlug}`} target="_blank" rel="noopener noreferrer" data-testid="link-sidebar-portal">
+                      <ExternalLink className="w-4 h-4" />
+                      <span>Portal do Cliente</span>
+                    </a>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild>
+                    <a href={`/loja/${companySlug}`} target="_blank" rel="noopener noreferrer" data-testid="link-sidebar-store">
+                      <ShoppingBag className="w-4 h-4" />
+                      <span>Loja Online</span>
+                    </a>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
       <SidebarFooter className="p-4">
         <Button

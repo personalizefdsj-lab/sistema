@@ -102,9 +102,14 @@ export async function registerRoutes(
     passport.authenticate("local", (err: any, user: any, info: any) => {
       if (err) return next(err);
       if (!user) return res.status(401).json({ message: info?.message || "Credenciais inválidas" });
-      req.logIn(user, (err) => {
+      req.logIn(user, async (err) => {
         if (err) return next(err);
-        return res.json(user);
+        const userData: any = { ...user };
+        if (userData.companyId) {
+          const company = await storage.getCompany(userData.companyId);
+          if (company) userData.companySlug = company.slug;
+        }
+        return res.json(userData);
       });
     })(req, res, next);
   });
@@ -128,7 +133,7 @@ export async function registerRoutes(
 
       req.logIn({ id: user.id, username: user.username, name: user.name, role: user.role, companyId: user.companyId }, (err) => {
         if (err) return res.status(500).json({ message: "Falha ao fazer login" });
-        return res.json({ id: user.id, username: user.username, name: user.name, role: user.role, companyId: user.companyId });
+        return res.json({ id: user.id, username: user.username, name: user.name, role: user.role, companyId: user.companyId, companySlug: slug });
       });
     } catch (err: any) {
       return res.status(400).json({ message: err.message });
@@ -136,9 +141,14 @@ export async function registerRoutes(
   });
 
   app.post("/api/auth/logout", (req, res) => { req.logout(() => res.json({ success: true })); });
-  app.get("/api/auth/me", (req, res) => {
+  app.get("/api/auth/me", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
-    return res.json(req.user);
+    const userData: any = { ...req.user };
+    if (userData.companyId) {
+      const company = await storage.getCompany(userData.companyId);
+      if (company) userData.companySlug = company.slug;
+    }
+    return res.json(userData);
   });
 
   app.get("/api/admin/companies", requireSuperAdmin, async (_req, res) => { res.json(await storage.getAllCompanies()); });

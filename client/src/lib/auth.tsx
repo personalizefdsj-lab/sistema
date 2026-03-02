@@ -8,6 +8,7 @@ type AuthUser = {
   name: string;
   role: string;
   companyId: number | null;
+  companySlug?: string;
 };
 
 type AuthContextType = {
