@@ -246,12 +246,63 @@ export class DatabaseStorage implements IStorage {
 
   async getDashboardStats(companyId: number): Promise<any> {
     const allOrders = await this.getOrders(companyId);
+    const allClients = await this.getClients(companyId);
+    const allProducts = await this.getProducts(companyId);
+
     const totalReceived = allOrders.reduce((sum, o) => sum + parseFloat(o.receivedValue || "0"), 0);
     const totalPending = allOrders.reduce((sum, o) => sum + (parseFloat(o.totalValue || "0") - parseFloat(o.receivedValue || "0")), 0);
     const pendingOrders = allOrders.filter(o => o.financialStatus !== "paid").length;
     const byStatus: Record<string, number> = {};
     allOrders.forEach(o => { byStatus[o.status] = (byStatus[o.status] || 0) + 1; });
-    return { totalReceived, totalPending, pendingOrders, totalOrders: allOrders.length, byStatus };
+
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+    const todayOrders = allOrders.filter(o => new Date(o.createdAt) >= todayStart).length;
+    const urgentOrders = allOrders.filter(o => o.urgent && o.status !== "finished").length;
+
+    const monthRevenue = allOrders
+      .filter(o => new Date(o.createdAt) >= monthStart)
+      .reduce((sum, o) => sum + parseFloat(o.receivedValue || "0"), 0);
+    const lastMonthRevenue = allOrders
+      .filter(o => new Date(o.createdAt) >= lastMonthStart && new Date(o.createdAt) < monthStart)
+      .reduce((sum, o) => sum + parseFloat(o.receivedValue || "0"), 0);
+
+    const physicalProducts = allProducts.filter(p => p.productType === "physical" && !p.parentId);
+    const lowStockCount = physicalProducts.filter(p => (p.stockQuantity || 0) <= (p.minStock || 0)).length;
+
+    const financialBreakdown = {
+      paid: allOrders.filter(o => o.financialStatus === "paid").length,
+      partial: allOrders.filter(o => o.financialStatus === "partial").length,
+      pending: allOrders.filter(o => o.financialStatus === "pending").length,
+    };
+
+    const clientMap = new Map(allClients.map(c => [c.id, c.name]));
+
+    const recentOrders = allOrders
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 5)
+      .map(o => {
+        return {
+          id: o.id,
+          code: o.code,
+          clientName: clientMap.get(o.clientId) || "—",
+          status: o.status,
+          financialStatus: o.financialStatus,
+          totalValue: o.totalValue,
+          urgent: o.urgent,
+          createdAt: o.createdAt,
+        };
+      });
+
+    return {
+      totalReceived, totalPending, pendingOrders, totalOrders: allOrders.length, byStatus,
+      todayOrders, urgentOrders, monthRevenue, lastMonthRevenue,
+      lowStockCount, totalClients: allClients.length,
+      financialBreakdown, recentOrders,
+    };
   }
 
   async getProducts(companyId: number): Promise<Product[]> {

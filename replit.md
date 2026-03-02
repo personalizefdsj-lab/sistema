@@ -17,7 +17,7 @@ A multi-tenant SaaS platform where multiple companies can manage their orders, c
 
 ## Key Features
 - Company registration & login
-- Dashboard with financial stats
+- Dashboard with rich stats (revenue cards, quick stats, monthly revenue comparison, financial breakdown bar, status distribution bar, recent orders list)
 - Order management (List + Kanban views)
 - Auto-generated order codes: `FDJ-YEAR-NUMBER`
 - Client management with phone-based identification
