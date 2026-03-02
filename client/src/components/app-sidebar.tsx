@@ -21,6 +21,9 @@ import {
   LogOut,
   Package,
   Shield,
+  ShoppingBag,
+  Warehouse,
+  TrendingUp,
 } from "lucide-react";
 
 export function AppSidebar() {
@@ -33,6 +36,9 @@ export function AppSidebar() {
     { title: "Dashboard", url: "/", icon: LayoutDashboard },
     { title: "Pedidos", url: "/orders", icon: ClipboardList },
     { title: "Clientes", url: "/clients", icon: Users },
+    { title: "Produtos", url: "/products", icon: ShoppingBag },
+    { title: "Estoque", url: "/stock", icon: Warehouse },
+    { title: "Vendas Online", url: "/sales", icon: TrendingUp },
     { title: "Conversas", url: "/conversations", icon: MessageSquare },
   ];
 

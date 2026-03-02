@@ -1,0 +1,180 @@
+====================================
+11. CADASTRO DE PRODUTOS
+====================================
+
+Criar módulo "Produtos" dentro da área da empresa.
+
+Cada empresa deve poder:
+
+- Cadastrar produto
+- Nome do produto
+- Descrição
+- Categoria
+- Preço
+- SKU automático
+- Código interno opcional
+- Foto principal
+- Galeria de imagens
+- Produto ativo/inativo
+
+11.1 Variações
+Permitir:
+- Tamanho
+- Cor
+- Modelo
+- Combinação de variações
+
+11.2 Produto físico ou digital
+Selecionar:
+- Produto físico (controla estoque)
+- Produto digital (não controla estoque)
+
+====================================
+12. CONTROLE DE ESTOQUE
+====================================
+
+Para produtos físicos:
+
+- Quantidade em estoque
+- Estoque mínimo
+- Aviso visual quando estoque estiver baixo
+- Histórico de movimentação:
+  - Entrada manual
+  - Saída manual
+  - Saída automática por venda
+  - Ajuste de inventário
+
+12.1 Movimentação automática
+Quando:
+- Pedido for marcado como "Finalizado"
+- OU venda online for confirmada
+
+O estoque deve ser reduzido automaticamente.
+
+12.2 Dashboard de estoque
+Exibir:
+- Produtos com estoque baixo
+- Produtos sem estoque
+- Valor total estimado em estoque
+
+====================================
+13. LINK DE PÁGINA DE VENDAS ONLINE
+====================================
+
+Cada empresa deve poder criar sua própria página pública de vendas.
+
+Formato:
+sua-plataforma.com/nome-da-empresa
+
+Ou
+
+sua-plataforma.com/loja/nome-da-empresa
+
+13.1 Página pública personalizada
+A empresa pode:
+
+- Escolher cor principal
+- Enviar logo
+- Banner principal
+- Texto de apresentação
+- Redes sociais
+
+13.2 Exibição de produtos
+Na página pública:
+
+- Lista de produtos ativos
+- Filtro por categoria
+- Busca por nome
+- Página individual do produto
+- Fotos
+- Preço
+- Seleção de variações
+- Botão Comprar
+
+====================================
+14. CARRINHO DE COMPRAS
+====================================
+
+Funcionalidades:
+
+- Adicionar ao carrinho
+- Alterar quantidade
+- Remover produto
+- Cálculo automático de total
+
+====================================
+15. FINALIZAÇÃO DE COMPRA
+====================================
+
+Cliente deve preencher:
+
+- Nome
+- WhatsApp
+- Email
+- Endereço (se físico)
+
+15.1 Geração automática de pedido
+Ao finalizar compra:
+
+- Criar pedido automaticamente dentro da empresa
+- Gerar código padrão:
+  FDJ-ANO-NÚMERO
+- Marcar como:
+  Pedido recebido
+- Status financeiro:
+  Pendente
+
+15.2 Integração manual de pagamento
+Botões:
+
+- Pagar via WhatsApp
+- Gerar link de pagamento manual
+- Marcar como pago manualmente
+
+====================================
+16. ÁREA DO CLIENTE (PÓS-VENDA)
+====================================
+
+Cliente pode:
+
+- Consultar pedido pelo número
+- Ver status
+- Ver etapa de produção
+- Ver histórico
+- Ver mensagens
+
+====================================
+17. DASHBOARD DE VENDAS ONLINE
+====================================
+
+Para cada empresa:
+
+- Total vendido no mês
+- Pedidos da loja online
+- Ticket médio
+- Produtos mais vendidos
+
+====================================
+18. ESTRUTURA DE MONETIZAÇÃO DO MICRO SAAS
+====================================
+
+Sistema preparado para planos:
+
+Plano Básico:
+- Gestão de pedidos
+- Clientes
+
+Plano Profissional:
+- Estoque
+- Produtos
+- Loja online
+
+Plano Premium:
+- Chat interno
+- Personalização avançada
+- Página pública personalizada
+
+O Super Admin pode:
+- Definir plano da empresa
+- Ativar/desativar loja online
+- Limitar quantidade de produtos por plano

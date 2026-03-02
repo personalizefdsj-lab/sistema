@@ -1,13 +1,16 @@
-import { eq, and, desc, sql, ilike } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
-  companies, users, clients, orders, orderHistory, messages,
+  companies, users, clients, orders, orderHistory, messages, products, stockMovements, orderItems,
   type Company, type InsertCompany,
   type User, type InsertUser,
   type Client, type InsertClient,
   type Order, type InsertOrder,
   type OrderHistory, type InsertOrderHistory,
   type Message, type InsertMessage,
+  type Product, type InsertProduct,
+  type StockMovement, type InsertStockMovement,
+  type OrderItem, type InsertOrderItem,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -45,6 +48,24 @@ export interface IStorage {
   markMessagesRead(companyId: number, clientId: number): Promise<void>;
 
   getDashboardStats(companyId: number): Promise<any>;
+
+  getProducts(companyId: number): Promise<Product[]>;
+  getProduct(id: number, companyId: number): Promise<Product | undefined>;
+  getActiveProducts(companyId: number): Promise<Product[]>;
+  createProduct(product: InsertProduct): Promise<Product>;
+  updateProduct(id: number, companyId: number, data: Partial<InsertProduct>): Promise<Product | undefined>;
+  deleteProduct(id: number, companyId: number): Promise<void>;
+  getNextSku(companyId: number): Promise<string>;
+
+  getStockMovements(productId: number, companyId: number): Promise<StockMovement[]>;
+  createStockMovement(movement: InsertStockMovement): Promise<StockMovement>;
+  adjustStock(productId: number, companyId: number, quantity: number): Promise<void>;
+  getStockDashboard(companyId: number): Promise<any>;
+
+  getOrderItems(orderId: number): Promise<OrderItem[]>;
+  createOrderItem(item: InsertOrderItem): Promise<OrderItem>;
+
+  getOnlineSalesDashboard(companyId: number): Promise<any>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -88,11 +109,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteCompany(id: number): Promise<void> {
-    await db.delete(orderHistory).where(
-      sql`${orderHistory.companyId} = ${id}`
-    );
+    await db.delete(orderHistory).where(sql`${orderHistory.companyId} = ${id}`);
     await db.delete(messages).where(eq(messages.companyId, id));
+    const companyOrders = await db.select().from(orders).where(eq(orders.companyId, id));
+    for (const o of companyOrders) {
+      await db.delete(orderItems).where(eq(orderItems.orderId, o.id));
+    }
     await db.delete(orders).where(eq(orders.companyId, id));
+    await db.delete(stockMovements).where(eq(stockMovements.companyId, id));
+    await db.delete(products).where(eq(products.companyId, id));
     await db.delete(clients).where(eq(clients.companyId, id));
     await db.delete(users).where(eq(users.companyId, id));
     await db.delete(companies).where(eq(companies.id, id));
@@ -197,11 +222,7 @@ export class DatabaseStorage implements IStorage {
         .orderBy(desc(messages.createdAt));
       if (msgs.length > 0) {
         const unread = msgs.filter(m => !m.read && m.senderType === "client").length;
-        conversations.push({
-          client,
-          lastMessage: msgs[0],
-          unreadCount: unread,
-        });
+        conversations.push({ client, lastMessage: msgs[0], unreadCount: unread });
       }
     }
     return conversations.sort((a, b) =>
@@ -216,11 +237,7 @@ export class DatabaseStorage implements IStorage {
 
   async markMessagesRead(companyId: number, clientId: number): Promise<void> {
     await db.update(messages).set({ read: true })
-      .where(and(
-        eq(messages.companyId, companyId),
-        eq(messages.clientId, clientId),
-        eq(messages.senderType, "client")
-      ));
+      .where(and(eq(messages.companyId, companyId), eq(messages.clientId, clientId), eq(messages.senderType, "client")));
   }
 
   async getDashboardStats(companyId: number): Promise<any> {
@@ -231,6 +248,117 @@ export class DatabaseStorage implements IStorage {
     const byStatus: Record<string, number> = {};
     allOrders.forEach(o => { byStatus[o.status] = (byStatus[o.status] || 0) + 1; });
     return { totalReceived, totalPending, pendingOrders, totalOrders: allOrders.length, byStatus };
+  }
+
+  async getProducts(companyId: number): Promise<Product[]> {
+    return db.select().from(products).where(eq(products.companyId, companyId)).orderBy(desc(products.createdAt));
+  }
+
+  async getProduct(id: number, companyId: number): Promise<Product | undefined> {
+    const [product] = await db.select().from(products).where(
+      and(eq(products.id, id), eq(products.companyId, companyId))
+    );
+    return product;
+  }
+
+  async getActiveProducts(companyId: number): Promise<Product[]> {
+    return db.select().from(products).where(
+      and(eq(products.companyId, companyId), eq(products.active, true))
+    ).orderBy(desc(products.createdAt));
+  }
+
+  async createProduct(product: InsertProduct): Promise<Product> {
+    const [created] = await db.insert(products).values(product).returning();
+    return created;
+  }
+
+  async updateProduct(id: number, companyId: number, data: Partial<InsertProduct>): Promise<Product | undefined> {
+    const [updated] = await db.update(products).set(data)
+      .where(and(eq(products.id, id), eq(products.companyId, companyId)))
+      .returning();
+    return updated;
+  }
+
+  async deleteProduct(id: number, companyId: number): Promise<void> {
+    await db.delete(stockMovements).where(eq(stockMovements.productId, id));
+    await db.delete(products).where(and(eq(products.id, id), eq(products.companyId, companyId)));
+  }
+
+  async getNextSku(companyId: number): Promise<string> {
+    const result = await db.select({ count: sql<number>`count(*)` })
+      .from(products).where(eq(products.companyId, companyId));
+    const num = (result[0]?.count || 0) + 1;
+    return `PRD-${String(num).padStart(5, "0")}`;
+  }
+
+  async getStockMovements(productId: number, companyId: number): Promise<StockMovement[]> {
+    return db.select().from(stockMovements).where(
+      and(eq(stockMovements.productId, productId), eq(stockMovements.companyId, companyId))
+    ).orderBy(desc(stockMovements.createdAt));
+  }
+
+  async createStockMovement(movement: InsertStockMovement): Promise<StockMovement> {
+    const [created] = await db.insert(stockMovements).values(movement).returning();
+    return created;
+  }
+
+  async adjustStock(productId: number, companyId: number, quantity: number): Promise<void> {
+    await db.update(products).set({
+      stockQuantity: sql`${products.stockQuantity} + ${quantity}`,
+    }).where(and(eq(products.id, productId), eq(products.companyId, companyId)));
+  }
+
+  async getStockDashboard(companyId: number): Promise<any> {
+    const allProducts = await this.getProducts(companyId);
+    const physicalProducts = allProducts.filter(p => p.productType === "physical");
+    const lowStock = physicalProducts.filter(p => (p.stockQuantity || 0) <= (p.minStock || 0) && (p.stockQuantity || 0) > 0);
+    const noStock = physicalProducts.filter(p => (p.stockQuantity || 0) === 0);
+    const totalValue = physicalProducts.reduce((sum, p) => sum + (p.stockQuantity || 0) * parseFloat(p.price || "0"), 0);
+    return { lowStock, noStock, totalValue, totalProducts: allProducts.length };
+  }
+
+  async getOrderItems(orderId: number): Promise<OrderItem[]> {
+    return db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+  }
+
+  async createOrderItem(item: InsertOrderItem): Promise<OrderItem> {
+    const [created] = await db.insert(orderItems).values(item).returning();
+    return created;
+  }
+
+  async getOnlineSalesDashboard(companyId: number): Promise<any> {
+    const allOrders = await this.getOrders(companyId);
+    const onlineOrders = allOrders.filter(o => o.source === "online");
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthOrders = onlineOrders.filter(o => new Date(o.createdAt) >= monthStart);
+    const totalMonth = monthOrders.reduce((sum, o) => sum + parseFloat(o.totalValue || "0"), 0);
+    const avgTicket = monthOrders.length > 0 ? totalMonth / monthOrders.length : 0;
+
+    const productSales: Record<number, { name: string; quantity: number; revenue: number }> = {};
+    for (const order of onlineOrders) {
+      const items = await this.getOrderItems(order.id);
+      for (const item of items) {
+        if (!productSales[item.productId]) {
+          const product = await this.getProduct(item.productId, companyId);
+          productSales[item.productId] = { name: product?.name || "Produto removido", quantity: 0, revenue: 0 };
+        }
+        productSales[item.productId].quantity += item.quantity;
+        productSales[item.productId].revenue += item.quantity * parseFloat(item.unitPrice);
+      }
+    }
+    const topProducts = Object.entries(productSales)
+      .map(([id, data]) => ({ productId: parseInt(id), ...data }))
+      .sort((a, b) => b.quantity - a.quantity)
+      .slice(0, 5);
+
+    return {
+      totalMonth,
+      monthOrdersCount: monthOrders.length,
+      avgTicket,
+      totalOnlineOrders: onlineOrders.length,
+      topProducts,
+    };
   }
 }
 

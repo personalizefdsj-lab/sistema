@@ -2,20 +2,24 @@ import type { Express } from "express";
 import { type Server } from "http";
 import passport from "passport";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
+import { db } from "./db";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireSuperAdmin, hashPassword } from "./auth";
-import { registerCompanySchema, ORDER_STATUSES } from "@shared/schema";
+import { registerCompanySchema, ORDER_STATUSES, orders } from "@shared/schema";
 
 const createClientSchema = z.object({
   name: z.string().min(1),
   phone: z.string().min(1),
   email: z.string().email().nullable().optional(),
+  address: z.string().nullable().optional(),
 });
 
 const updateClientSchema = z.object({
   name: z.string().min(1).optional(),
   phone: z.string().min(1).optional(),
   email: z.string().email().nullable().optional(),
+  address: z.string().nullable().optional(),
 });
 
 const createOrderSchema = z.object({
@@ -40,6 +44,46 @@ const updateOrderSchema = z.object({
 const sendMessageSchema = z.object({
   clientId: z.number().int().positive(),
   content: z.string().min(1),
+});
+
+const createProductSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional().nullable(),
+  category: z.string().optional().nullable(),
+  price: z.string().min(1),
+  internalCode: z.string().optional().nullable(),
+  imageUrl: z.string().optional().nullable(),
+  gallery: z.array(z.string()).optional().nullable(),
+  active: z.boolean().optional().default(true),
+  productType: z.enum(["physical", "digital"]).default("physical"),
+  variations: z.object({
+    sizes: z.array(z.string()).optional(),
+    colors: z.array(z.string()).optional(),
+    models: z.array(z.string()).optional(),
+  }).optional().nullable(),
+  stockQuantity: z.number().optional().default(0),
+  minStock: z.number().optional().default(0),
+});
+
+const updateProductSchema = createProductSchema.partial();
+
+const stockMovementSchema = z.object({
+  productId: z.number().int().positive(),
+  type: z.enum(["manual_in", "manual_out", "adjustment"]),
+  quantity: z.number().int().positive(),
+  reason: z.string().optional().nullable(),
+});
+
+const checkoutSchema = z.object({
+  name: z.string().min(1),
+  phone: z.string().min(1),
+  email: z.string().email().optional().nullable(),
+  address: z.string().optional().nullable(),
+  items: z.array(z.object({
+    productId: z.number().int().positive(),
+    quantity: z.number().int().positive(),
+    variation: z.string().optional().nullable(),
+  })).min(1),
 });
 
 export async function registerRoutes(
@@ -70,163 +114,92 @@ export async function registerRoutes(
       if (existingSlug) return res.status(400).json({ message: "Nome de empresa já em uso" });
 
       const hashedPassword = await hashPassword(data.adminPassword);
-
-      const company = await storage.createCompany({
-        name: data.companyName,
-        slug,
-        phone: data.companyPhone || null,
-      });
-
+      const company = await storage.createCompany({ name: data.companyName, slug, phone: data.companyPhone || null });
       const user = await storage.createUser({
-        username: data.adminUsername,
-        password: hashedPassword,
-        name: data.adminName,
-        role: "admin",
-        companyId: company.id,
+        username: data.adminUsername, password: hashedPassword, name: data.adminName,
+        role: "admin", companyId: company.id,
       });
 
-      req.logIn({
-        id: user.id,
-        username: user.username,
-        name: user.name,
-        role: user.role,
-        companyId: user.companyId,
-      }, (err) => {
+      req.logIn({ id: user.id, username: user.username, name: user.name, role: user.role, companyId: user.companyId }, (err) => {
         if (err) return res.status(500).json({ message: "Falha ao fazer login" });
-        return res.json({
-          id: user.id,
-          username: user.username,
-          name: user.name,
-          role: user.role,
-          companyId: user.companyId,
-        });
+        return res.json({ id: user.id, username: user.username, name: user.name, role: user.role, companyId: user.companyId });
       });
     } catch (err: any) {
       return res.status(400).json({ message: err.message });
     }
   });
 
-  app.post("/api/auth/logout", (req, res) => {
-    req.logout(() => res.json({ success: true }));
-  });
-
+  app.post("/api/auth/logout", (req, res) => { req.logout(() => res.json({ success: true })); });
   app.get("/api/auth/me", (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     return res.json(req.user);
   });
 
-  app.get("/api/admin/companies", requireSuperAdmin, async (_req, res) => {
-    const all = await storage.getAllCompanies();
-    res.json(all);
-  });
-
+  app.get("/api/admin/companies", requireSuperAdmin, async (_req, res) => { res.json(await storage.getAllCompanies()); });
   app.patch("/api/admin/companies/:id", requireSuperAdmin, async (req, res) => {
-    const id = parseInt(req.params.id);
-    const allowed = z.object({
-      status: z.enum(["active", "suspended"]).optional(),
-      plan: z.enum(["basic", "professional", "premium"]).optional(),
-    }).parse(req.body);
-    const updated = await storage.updateCompany(id, allowed);
+    const allowed = z.object({ status: z.enum(["active", "suspended"]).optional(), plan: z.enum(["basic", "professional", "premium"]).optional() }).parse(req.body);
+    const updated = await storage.updateCompany(parseInt(req.params.id), allowed);
     if (!updated) return res.status(404).json({ message: "Não encontrado" });
     res.json(updated);
   });
-
   app.delete("/api/admin/companies/:id", requireSuperAdmin, async (req, res) => {
-    const id = parseInt(req.params.id);
-    await storage.deleteCompany(id);
+    await storage.deleteCompany(parseInt(req.params.id));
     res.json({ success: true });
   });
 
   app.get("/api/clients", requireAuth, async (req, res) => {
     const companyId = req.user!.companyId!;
     const search = req.query.search as string;
-    if (search) {
-      const results = await storage.searchClients(companyId, search);
-      return res.json(results);
-    }
-    const all = await storage.getClients(companyId);
-    res.json(all);
+    if (search) return res.json(await storage.searchClients(companyId, search));
+    res.json(await storage.getClients(companyId));
   });
-
   app.get("/api/clients/:id", requireAuth, async (req, res) => {
     const client = await storage.getClient(parseInt(req.params.id), req.user!.companyId!);
     if (!client) return res.status(404).json({ message: "Não encontrado" });
     res.json(client);
   });
-
   app.post("/api/clients", requireAuth, async (req, res) => {
     try {
       const companyId = req.user!.companyId!;
       const data = createClientSchema.parse(req.body);
       const existing = await storage.getClientByPhone(data.phone, companyId);
       if (existing) return res.status(400).json({ message: "Cliente com este telefone já existe" });
-      const client = await storage.createClient({ ...data, companyId });
-      res.json(client);
-    } catch (err: any) {
-      res.status(400).json({ message: err.message });
-    }
+      res.json(await storage.createClient({ ...data, companyId }));
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
   });
-
   app.patch("/api/clients/:id", requireAuth, async (req, res) => {
     try {
       const data = updateClientSchema.parse(req.body);
       const updated = await storage.updateClient(parseInt(req.params.id), req.user!.companyId!, data);
       if (!updated) return res.status(404).json({ message: "Não encontrado" });
       res.json(updated);
-    } catch (err: any) {
-      res.status(400).json({ message: err.message });
-    }
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
   });
 
-  app.get("/api/orders", requireAuth, async (req, res) => {
-    const all = await storage.getOrders(req.user!.companyId!);
-    res.json(all);
-  });
-
+  app.get("/api/orders", requireAuth, async (req, res) => { res.json(await storage.getOrders(req.user!.companyId!)); });
   app.get("/api/orders/:id", requireAuth, async (req, res) => {
     const order = await storage.getOrder(parseInt(req.params.id), req.user!.companyId!);
     if (!order) return res.status(404).json({ message: "Não encontrado" });
     res.json(order);
   });
-
   app.get("/api/orders/client/:clientId", requireAuth, async (req, res) => {
-    const ordersList = await storage.getOrdersByClient(parseInt(req.params.clientId), req.user!.companyId!);
-    res.json(ordersList);
+    res.json(await storage.getOrdersByClient(parseInt(req.params.clientId), req.user!.companyId!));
   });
-
   app.post("/api/orders", requireAuth, async (req, res) => {
     try {
       const companyId = req.user!.companyId!;
       const data = createOrderSchema.parse(req.body);
       const nextNum = await storage.getNextOrderNumber(companyId);
-      const year = new Date().getFullYear();
-      const code = `FDJ-${year}-${String(nextNum).padStart(4, "0")}`;
-
+      const code = `FDJ-${new Date().getFullYear()}-${String(nextNum).padStart(4, "0")}`;
       const order = await storage.createOrder({
-        ...data,
-        companyId,
-        code,
-        status: "received",
-        financialStatus: "pending",
-        receivedValue: "0",
-        kanbanOrder: 0,
+        ...data, companyId, code, status: "received", financialStatus: "pending",
+        receivedValue: "0", kanbanOrder: 0,
         deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : null,
       } as any);
-
-      await storage.createOrderHistory({
-        orderId: order.id,
-        companyId,
-        fromStatus: null,
-        toStatus: "received",
-        changedBy: req.user!.name,
-      });
-
+      await storage.createOrderHistory({ orderId: order.id, companyId, fromStatus: null, toStatus: "received", changedBy: req.user!.name });
       res.json(order);
-    } catch (err: any) {
-      res.status(400).json({ message: err.message });
-    }
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
   });
-
   app.patch("/api/orders/:id", requireAuth, async (req, res) => {
     try {
       const companyId = req.user!.companyId!;
@@ -236,78 +209,207 @@ export async function registerRoutes(
       if (!existing) return res.status(404).json({ message: "Não encontrado" });
 
       if (data.status && data.status !== existing.status) {
-        await storage.createOrderHistory({
-          orderId,
-          companyId,
-          fromStatus: existing.status,
-          toStatus: data.status,
-          changedBy: req.user!.name,
-        });
+        await storage.createOrderHistory({ orderId, companyId, fromStatus: existing.status, toStatus: data.status, changedBy: req.user!.name });
+        if (data.status === "finished" && existing.status !== "finished" && existing.source !== "online") {
+          const items = await storage.getOrderItems(orderId);
+          for (const item of items) {
+            const product = await storage.getProduct(item.productId, companyId);
+            if (product && product.productType === "physical") {
+              await storage.adjustStock(item.productId, companyId, -item.quantity);
+              await storage.createStockMovement({ productId: item.productId, companyId, type: "sale", quantity: -item.quantity, reason: `Pedido ${existing.code} finalizado` });
+            }
+          }
+        }
       }
 
       if (data.receivedValue !== undefined || data.totalValue !== undefined) {
         const total = parseFloat(data.totalValue ?? existing.totalValue ?? "0");
         const received = parseFloat(data.receivedValue ?? existing.receivedValue ?? "0");
-        if (received >= total && total > 0) {
-          data.financialStatus = "paid";
-        } else if (received > 0) {
-          data.financialStatus = "partial";
-        } else {
-          data.financialStatus = "pending";
-        }
+        if (received >= total && total > 0) data.financialStatus = "paid";
+        else if (received > 0) data.financialStatus = "partial";
+        else data.financialStatus = "pending";
       }
 
-      const updated = await storage.updateOrder(orderId, companyId, data as any);
-      res.json(updated);
-    } catch (err: any) {
-      res.status(400).json({ message: err.message });
-    }
+      res.json(await storage.updateOrder(orderId, companyId, data as any));
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
   });
-
   app.get("/api/orders/:id/history", requireAuth, async (req, res) => {
-    const history = await storage.getOrderHistory(parseInt(req.params.id), req.user!.companyId!);
-    res.json(history);
+    res.json(await storage.getOrderHistory(parseInt(req.params.id), req.user!.companyId!));
+  });
+  app.get("/api/orders/:id/items", requireAuth, async (req, res) => {
+    res.json(await storage.getOrderItems(parseInt(req.params.id)));
   });
 
   app.get("/api/messages/:clientId", requireAuth, async (req, res) => {
-    const msgs = await storage.getMessages(req.user!.companyId!, parseInt(req.params.clientId));
-    res.json(msgs);
+    res.json(await storage.getMessages(req.user!.companyId!, parseInt(req.params.clientId)));
   });
-
   app.get("/api/conversations", requireAuth, async (req, res) => {
-    const convos = await storage.getConversations(req.user!.companyId!);
-    res.json(convos);
+    res.json(await storage.getConversations(req.user!.companyId!));
   });
-
   app.post("/api/messages", requireAuth, async (req, res) => {
     try {
       const data = sendMessageSchema.parse(req.body);
-      const msg = await storage.createMessage({
-        ...data,
-        companyId: req.user!.companyId!,
-        senderType: "company",
-      });
-      res.json(msg);
-    } catch (err: any) {
-      res.status(400).json({ message: err.message });
-    }
+      res.json(await storage.createMessage({ ...data, companyId: req.user!.companyId!, senderType: "company" }));
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
   });
-
   app.post("/api/messages/:clientId/read", requireAuth, async (req, res) => {
     await storage.markMessagesRead(req.user!.companyId!, parseInt(req.params.clientId));
     res.json({ success: true });
   });
 
-  app.get("/api/dashboard", requireAuth, async (req, res) => {
-    const stats = await storage.getDashboardStats(req.user!.companyId!);
-    res.json(stats);
-  });
-
+  app.get("/api/dashboard", requireAuth, async (req, res) => { res.json(await storage.getDashboardStats(req.user!.companyId!)); });
   app.get("/api/company", requireAuth, async (req, res) => {
     const company = await storage.getCompany(req.user!.companyId!);
     if (!company) return res.status(404).json({ message: "Não encontrado" });
     res.json(company);
   });
+  app.patch("/api/company", requireAuth, async (req, res) => {
+    const allowed = z.object({
+      description: z.string().optional().nullable(),
+      primaryColor: z.string().optional(),
+      bannerUrl: z.string().optional().nullable(),
+      socialLinks: z.any().optional(),
+    }).parse(req.body);
+    const updated = await storage.updateCompany(req.user!.companyId!, allowed);
+    res.json(updated);
+  });
+
+  // Products
+  app.get("/api/products", requireAuth, async (req, res) => { res.json(await storage.getProducts(req.user!.companyId!)); });
+  app.get("/api/products/:id", requireAuth, async (req, res) => {
+    const product = await storage.getProduct(parseInt(req.params.id), req.user!.companyId!);
+    if (!product) return res.status(404).json({ message: "Não encontrado" });
+    res.json(product);
+  });
+  app.post("/api/products", requireAuth, async (req, res) => {
+    try {
+      const companyId = req.user!.companyId!;
+      const data = createProductSchema.parse(req.body);
+      const sku = await storage.getNextSku(companyId);
+      res.json(await storage.createProduct({ ...data, companyId, sku } as any));
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+  app.patch("/api/products/:id", requireAuth, async (req, res) => {
+    try {
+      const data = updateProductSchema.parse(req.body);
+      const updated = await storage.updateProduct(parseInt(req.params.id), req.user!.companyId!, data as any);
+      if (!updated) return res.status(404).json({ message: "Não encontrado" });
+      res.json(updated);
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+  app.delete("/api/products/:id", requireAuth, async (req, res) => {
+    await storage.deleteProduct(parseInt(req.params.id), req.user!.companyId!);
+    res.json({ success: true });
+  });
+
+  // Stock
+  app.get("/api/stock/dashboard", requireAuth, async (req, res) => {
+    res.json(await storage.getStockDashboard(req.user!.companyId!));
+  });
+  app.get("/api/stock/:productId/movements", requireAuth, async (req, res) => {
+    res.json(await storage.getStockMovements(parseInt(req.params.productId), req.user!.companyId!));
+  });
+  app.post("/api/stock/movement", requireAuth, async (req, res) => {
+    try {
+      const companyId = req.user!.companyId!;
+      const data = stockMovementSchema.parse(req.body);
+      const product = await storage.getProduct(data.productId, companyId);
+      if (!product) return res.status(404).json({ message: "Produto não encontrado" });
+      if (product.productType !== "physical") return res.status(400).json({ message: "Produto digital não controla estoque" });
+      const delta = data.type === "manual_in" ? data.quantity : data.type === "manual_out" ? -data.quantity : data.quantity;
+      const movement = await storage.createStockMovement({ ...data, companyId, quantity: delta });
+      await storage.adjustStock(data.productId, companyId, delta);
+      res.json(movement);
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+
+  // Sales dashboard
+  app.get("/api/sales/dashboard", requireAuth, async (req, res) => {
+    res.json(await storage.getOnlineSalesDashboard(req.user!.companyId!));
+  });
+
+  // Public store routes (no auth required)
+  app.get("/api/store/:slug", async (req, res) => {
+    const company = await storage.getCompanyBySlug(req.params.slug);
+    if (!company || company.status !== "active") return res.status(404).json({ message: "Loja não encontrada" });
+    const { id, name, slug, phone, logoUrl, bannerUrl, primaryColor, description, socialLinks, plan } = company;
+    if (plan === "basic") return res.status(403).json({ message: "Loja não disponível neste plano" });
+    res.json({ id, name, slug, phone, logoUrl, bannerUrl, primaryColor, description, socialLinks });
+  });
+  app.get("/api/store/:slug/products", async (req, res) => {
+    const company = await storage.getCompanyBySlug(req.params.slug);
+    if (!company || company.status !== "active") return res.status(404).json({ message: "Loja não encontrada" });
+    if (company.plan === "basic") return res.status(403).json({ message: "Loja não disponível neste plano" });
+    const prods = await storage.getActiveProducts(company.id);
+    res.json(prods);
+  });
+  app.get("/api/store/:slug/products/:productId", async (req, res) => {
+    const company = await storage.getCompanyBySlug(req.params.slug);
+    if (!company || company.status !== "active") return res.status(404).json({ message: "Loja não encontrada" });
+    const product = await storage.getProduct(parseInt(req.params.productId), company.id);
+    if (!product || !product.active) return res.status(404).json({ message: "Produto não encontrado" });
+    res.json(product);
+  });
+
+  // Public checkout
+  app.post("/api/store/:slug/checkout", async (req, res) => {
+    try {
+      const company = await storage.getCompanyBySlug(req.params.slug);
+      if (!company || company.status !== "active") return res.status(404).json({ message: "Loja não encontrada" });
+      if (company.plan === "basic") return res.status(403).json({ message: "Loja não disponível neste plano" });
+
+      const data = checkoutSchema.parse(req.body);
+      let client = await storage.getClientByPhone(data.phone, company.id);
+      if (!client) {
+        client = await storage.createClient({ companyId: company.id, name: data.name, phone: data.phone, email: data.email || null, address: data.address || null });
+      }
+
+      let totalValue = 0;
+      const itemsWithPrices = [];
+      for (const item of data.items) {
+        const product = await storage.getProduct(item.productId, company.id);
+        if (!product || !product.active) return res.status(400).json({ message: `Produto ${item.productId} não encontrado` });
+        const price = parseFloat(product.price);
+        totalValue += price * item.quantity;
+        itemsWithPrices.push({ ...item, unitPrice: product.price, productName: product.name });
+      }
+
+      const nextNum = await storage.getNextOrderNumber(company.id);
+      const code = `FDJ-${new Date().getFullYear()}-${String(nextNum).padStart(4, "0")}`;
+      const desc = itemsWithPrices.map(i => `${i.quantity}x ${i.productName}${i.variation ? ` (${i.variation})` : ""}`).join(", ");
+
+      const order = await storage.createOrder({
+        companyId: company.id, clientId: client.id, code, status: "received", financialStatus: "pending",
+        totalValue: totalValue.toFixed(2), receivedValue: "0", kanbanOrder: 0, description: desc,
+        urgent: false, source: "online",
+      } as any);
+
+      for (const item of itemsWithPrices) {
+        await storage.createOrderItem({ orderId: order.id, productId: item.productId, quantity: item.quantity, unitPrice: item.unitPrice, variation: item.variation || null });
+        const product = await storage.getProduct(item.productId, company.id);
+        if (product && product.productType === "physical") {
+          await storage.adjustStock(item.productId, company.id, -item.quantity);
+          await storage.createStockMovement({ productId: item.productId, companyId: company.id, type: "sale", quantity: -item.quantity, reason: `Venda online - Pedido ${code}` });
+        }
+      }
+
+      await storage.createOrderHistory({ orderId: order.id, companyId: company.id, fromStatus: null, toStatus: "received", changedBy: "Loja Online" });
+      res.json({ order, code: order.code });
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+
+  // Public order tracking
+  app.get("/api/track/:code", async (req, res) => {
+    const code = req.params.code.toUpperCase();
+    const result = await db.select().from(orders).where(eq(orders.code, code));
+    if (result.length === 0) return res.status(404).json({ message: "Pedido não encontrado" });
+    const order = result[0];
+    const history = await storage.getOrderHistory(order.id, order.companyId);
+    const company = await storage.getCompany(order.companyId);
+    const client = await storage.getClient(order.clientId, order.companyId);
+    res.json({ order, history, companyName: company?.name, clientName: client?.name });
+  });
 
   return httpServer;
 }
+

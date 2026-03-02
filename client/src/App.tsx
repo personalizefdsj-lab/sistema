@@ -14,6 +14,11 @@ import OrdersPage from "@/pages/orders";
 import ClientsPage from "@/pages/clients";
 import ConversationsPage from "@/pages/conversations";
 import AdminPage from "@/pages/admin";
+import ProductsPage from "@/pages/products";
+import StockPage from "@/pages/stock";
+import SalesDashboardPage from "@/pages/sales-dashboard";
+import PublicStore from "@/pages/store";
+import TrackingPage from "@/pages/tracking";
 
 function ProtectedRouter() {
   const { user, isLoading } = useAuth();
@@ -55,6 +60,9 @@ function ProtectedRouter() {
         <Route path="/orders" component={OrdersPage} />
         <Route path="/clients" component={ClientsPage} />
         <Route path="/conversations" component={ConversationsPage} />
+        <Route path="/products" component={ProductsPage} />
+        <Route path="/stock" component={StockPage} />
+        <Route path="/sales" component={SalesDashboardPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>
@@ -90,7 +98,14 @@ function App() {
       <TooltipProvider>
         <AuthProvider>
           <Toaster />
-          <ProtectedRouter />
+          <Switch>
+            <Route path="/loja/:slug" component={PublicStore} />
+            <Route path="/rastrear/:code" component={TrackingPage} />
+            <Route path="/rastrear" component={TrackingPage} />
+            <Route>
+              <ProtectedRouter />
+            </Route>
+          </Switch>
         </AuthProvider>
       </TooltipProvider>
     </QueryClientProvider>

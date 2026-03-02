@@ -1,7 +1,7 @@
 # Gestor de Pedidos - Multi-tenant Order Management SaaS
 
 ## Overview
-A multi-tenant SaaS platform where multiple companies can manage their orders, clients, finances, and internal communication. Each company has isolated data with its own workspace.
+A multi-tenant SaaS platform where multiple companies can manage their orders, clients, finances, and internal communication. Each company has isolated data with its own workspace. Includes public online store per company, shopping cart, checkout, and order tracking.
 
 ## Tech Stack
 - **Frontend**: React + TypeScript + Tailwind CSS + Shadcn/UI + Wouter routing + TanStack Query
@@ -13,6 +13,7 @@ A multi-tenant SaaS platform where multiple companies can manage their orders, c
 - Multi-tenant: Each company's data is isolated by `companyId`
 - Role-based: `superadmin` (platform owner), `admin` (company admin)
 - Session-based authentication with Passport.js
+- Public routes (no auth): `/loja/:slug` (store), `/rastrear/:code` (tracking)
 
 ## Key Features
 - Company registration & login
@@ -25,6 +26,13 @@ A multi-tenant SaaS platform where multiple companies can manage their orders, c
 - Internal chat/messaging system
 - Super Admin panel for platform management
 - Subscription plan structure (basic/professional/premium)
+- **Products module**: CRUD with categories, variations (size/color/model), physical/digital types, SKU auto-generation
+- **Inventory control**: Stock tracking, low stock alerts, movement history (in/out/sale/adjustment), automatic stock reduction on order finish
+- **Public online store**: Per-company store at `/loja/:slug`, product listing with search/filter, product detail, responsive design
+- **Shopping cart**: Add/remove/update quantities, variation selection, total calculation
+- **Checkout flow**: Client info form, automatic order + client creation, order code generation
+- **Order tracking**: Public page at `/rastrear/:code`, timeline view of order progress
+- **Sales dashboard**: Online sales metrics (monthly total, orders count, average ticket)
 
 ## Project Structure
 ```
@@ -40,6 +48,18 @@ client/src/pages/    - All page components
 client/src/components/ - Shared components
 ```
 
+## Pages
+- `/` - Dashboard
+- `/orders` - Orders (list + kanban)
+- `/clients` - Client management
+- `/products` - Product CRUD
+- `/stock` - Inventory control
+- `/sales` - Online sales dashboard
+- `/conversations` - Internal messaging
+- `/admin` - Super admin panel
+- `/loja/:slug` - Public store (no auth)
+- `/rastrear/:code` - Order tracking (no auth)
+
 ## Demo Credentials
 - **Super Admin**: username: `superadmin`, password: `admin123`
 - **Company Admin (Arte Digital Studio)**: username: `maria`, password: `123456`
@@ -47,5 +67,5 @@ client/src/components/ - Shared components
 
 ## Database
 - PostgreSQL via Drizzle ORM
-- Tables: companies, users, clients, orders, order_history, messages, session
+- Tables: companies, users, clients, orders, order_history, messages, products, stock_movements, order_items, session
 - Schema push: `npm run db:push`
