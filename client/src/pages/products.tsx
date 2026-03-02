@@ -248,7 +248,8 @@ function ProductDialog({ open, onOpenChange, product }: { open: boolean; onOpenC
 
   const [childPreviews, setChildPreviews] = useState<{ label: string; price: string; wholesalePrice: string; stock: number }[]>([]);
 
-  const resetForm = () => {
+  useEffect(() => {
+    if (!open) return;
     if (product) {
       const v = product.variations as any;
       setForm({
@@ -271,7 +272,7 @@ function ProductDialog({ open, onOpenChange, product }: { open: boolean; onOpenC
       });
       setChildPreviews([]);
     }
-  };
+  }, [open, product]);
 
   useEffect(() => {
     if (!product && form.generateChildren) {
@@ -350,7 +351,7 @@ function ProductDialog({ open, onOpenChange, product }: { open: boolean; onOpenC
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (v) resetForm(); }}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
