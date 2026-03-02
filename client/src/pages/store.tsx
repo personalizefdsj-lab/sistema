@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -41,8 +41,23 @@ export default function PublicStore() {
     enabled: !!company,
   });
 
-  const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
-  const filtered = products.filter(p => {
+  const childrenMap = useMemo(() => {
+    const map: Record<number, Product[]> = {};
+    products.forEach(p => {
+      if (p.parentId) {
+        if (!map[p.parentId]) map[p.parentId] = [];
+        map[p.parentId].push(p);
+      }
+    });
+    return map;
+  }, [products]);
+
+  const displayProducts = useMemo(() => {
+    return products.filter(p => !p.parentId);
+  }, [products]);
+
+  const categories = [...new Set(displayProducts.map(p => p.category).filter(Boolean))];
+  const filtered = displayProducts.filter(p => {
     const matchSearch = !search || p.name.toLowerCase().includes(search.toLowerCase());
     const matchCat = categoryFilter === "all" || p.category === categoryFilter;
     return matchSearch && matchCat;
@@ -162,7 +177,7 @@ export default function PublicStore() {
         </div>
 
         {selectedProduct ? (
-          <ProductDetail product={selectedProduct} primaryColor={primaryColor} onBack={() => setSelectedProduct(null)} onAddToCart={addToCart} />
+          <ProductDetail product={selectedProduct} children={childrenMap[selectedProduct.id] || []} primaryColor={primaryColor} onBack={() => setSelectedProduct(null)} onAddToCart={addToCart} />
         ) : (
           <>
             {productsLoading ? (
@@ -173,30 +188,49 @@ export default function PublicStore() {
               <div className="text-center py-16 text-muted-foreground">Nenhum produto encontrado</div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {filtered.map(product => (
-                  <Card key={product.id} data-testid={`card-store-product-${product.id}`} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setSelectedProduct(product)}>
-                    <CardContent className="p-0">
-                      {product.imageUrl ? (
-                        <img src={product.imageUrl} alt={product.name} className="w-full h-40 object-cover rounded-t-lg" />
-                      ) : (
-                        <div className="w-full h-40 bg-muted flex items-center justify-center rounded-t-lg">
-                          <StoreIcon className="w-8 h-8 text-muted-foreground" />
+                {filtered.map(product => {
+                  const children = childrenMap[product.id] || [];
+                  const hasChildren = children.length > 0;
+                  const prices = hasChildren ? children.map(c => parseFloat(c.price)) : [parseFloat(product.price)];
+                  const minPrice = Math.min(...prices);
+                  const maxPrice = Math.max(...prices);
+                  const priceDisplay = minPrice === maxPrice
+                    ? `R$ ${minPrice.toFixed(2)}`
+                    : `R$ ${minPrice.toFixed(2)} - R$ ${maxPrice.toFixed(2)}`;
+
+                  return (
+                    <Card key={product.id} data-testid={`card-store-product-${product.id}`} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setSelectedProduct(product)}>
+                      <CardContent className="p-0">
+                        {product.imageUrl ? (
+                          <img src={product.imageUrl} alt={product.name} className="w-full h-40 object-cover rounded-t-lg" />
+                        ) : (
+                          <div className="w-full h-40 bg-muted flex items-center justify-center rounded-t-lg">
+                            <StoreIcon className="w-8 h-8 text-muted-foreground" />
+                          </div>
+                        )}
+                        <div className="p-3 space-y-1">
+                          <h3 className="font-medium text-sm truncate" data-testid={`text-store-product-name-${product.id}`}>{product.name}</h3>
+                          {product.category && <Badge variant="secondary" className="text-xs">{product.category}</Badge>}
+                          {hasChildren && <Badge variant="outline" className="text-xs">{children.length} opções</Badge>}
+                          <p className="text-lg font-bold" style={{ color: primaryColor }} data-testid={`text-store-product-price-${product.id}`}>
+                            {hasChildren ? `A partir de R$ ${minPrice.toFixed(2)}` : priceDisplay}
+                          </p>
+                          {!hasChildren ? (
+                            <Button size="sm" className="w-full mt-2" style={{ backgroundColor: primaryColor }} data-testid={`button-add-to-cart-${product.id}`}
+                              onClick={e => { e.stopPropagation(); addToCart(product); }}>
+                              <Plus className="w-3 h-3 mr-1" /> Adicionar
+                            </Button>
+                          ) : (
+                            <Button size="sm" variant="outline" className="w-full mt-2" data-testid={`button-view-options-${product.id}`}
+                              onClick={e => { e.stopPropagation(); setSelectedProduct(product); }}>
+                              Ver Opções
+                            </Button>
+                          )}
                         </div>
-                      )}
-                      <div className="p-3 space-y-1">
-                        <h3 className="font-medium text-sm truncate" data-testid={`text-store-product-name-${product.id}`}>{product.name}</h3>
-                        {product.category && <Badge variant="secondary" className="text-xs">{product.category}</Badge>}
-                        <p className="text-lg font-bold" style={{ color: primaryColor }} data-testid={`text-store-product-price-${product.id}`}>
-                          R$ {parseFloat(product.price).toFixed(2)}
-                        </p>
-                        <Button size="sm" className="w-full mt-2" style={{ backgroundColor: primaryColor }} data-testid={`button-add-to-cart-${product.id}`}
-                          onClick={e => { e.stopPropagation(); addToCart(product); }}>
-                          <Plus className="w-3 h-3 mr-1" /> Adicionar
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             )}
           </>
@@ -261,14 +295,32 @@ export default function PublicStore() {
   );
 }
 
-function ProductDetail({ product, primaryColor, onBack, onAddToCart }: { product: Product; primaryColor: string; onBack: () => void; onAddToCart: (p: Product, v?: string) => void }) {
-  const [selectedVariation, setSelectedVariation] = useState("");
-  const variations = product.variations as any;
+function ProductDetail({ product, children: childProducts, primaryColor, onBack, onAddToCart }: {
+  product: Product; children: Product[]; primaryColor: string; onBack: () => void; onAddToCart: (p: Product, v?: string) => void;
+}) {
+  const [selectedChildId, setSelectedChildId] = useState<number | null>(childProducts.length > 0 ? childProducts[0].id : null);
+  const hasChildren = childProducts.length > 0;
 
-  const allVariations: string[] = [];
-  if (variations?.sizes) allVariations.push(...variations.sizes.map((s: string) => `Tamanho: ${s}`));
-  if (variations?.colors) allVariations.push(...variations.colors.map((s: string) => `Cor: ${s}`));
-  if (variations?.models) allVariations.push(...variations.models.map((s: string) => `Modelo: ${s}`));
+  const selectedChild = hasChildren ? childProducts.find(c => c.id === selectedChildId) || childProducts[0] : null;
+  const displayPrice = selectedChild ? parseFloat(selectedChild.price) : parseFloat(product.price);
+  const displayWholesale = selectedChild?.wholesalePrice || product.wholesalePrice;
+  const wholesaleMinQty = selectedChild?.wholesaleMinQty || product.wholesaleMinQty || 1;
+
+  const variations = product.variations as any;
+  const sizes = variations?.sizes || [];
+  const colors = variations?.colors || [];
+  const models = variations?.models || [];
+
+  const [selSize, setSelSize] = useState(sizes[0] || "");
+  const [selColor, setSelColor] = useState(colors[0] || "");
+  const [selModel, setSelModel] = useState(models[0] || "");
+
+  const updateSelection = (newSize: string, newColor: string, newModel: string) => {
+    const parts = [newSize, newColor, newModel].filter(Boolean);
+    const label = parts.join(" / ");
+    const match = childProducts.find(c => c.variationLabel === label);
+    if (match) setSelectedChildId(match.id);
+  };
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -287,24 +339,91 @@ function ProductDetail({ product, primaryColor, onBack, onAddToCart }: { product
           <h2 className="text-2xl font-bold" data-testid="text-product-detail-name">{product.name}</h2>
           {product.category && <Badge variant="secondary">{product.category}</Badge>}
           <p className="text-3xl font-bold" style={{ color: primaryColor }} data-testid="text-product-detail-price">
-            R$ {parseFloat(product.price).toFixed(2)}
+            R$ {displayPrice.toFixed(2)}
           </p>
+          {displayWholesale && (
+            <p className="text-sm text-muted-foreground" data-testid="text-product-wholesale">
+              Atacado: R$ {parseFloat(displayWholesale).toFixed(2)} (a partir de {wholesaleMinQty} un.)
+            </p>
+          )}
           {product.description && <p className="text-muted-foreground">{product.description}</p>}
-          {allVariations.length > 0 && (
+
+          {hasChildren && sizes.length > 0 && (
             <div>
-              <p className="text-sm font-medium mb-2">Variações</p>
+              <p className="text-sm font-medium mb-2">Tamanho</p>
               <div className="flex flex-wrap gap-2">
-                {allVariations.map(v => (
-                  <Badge key={v} variant={selectedVariation === v ? "default" : "outline"} className="cursor-pointer" data-testid={`badge-variation-${v}`}
-                    onClick={() => setSelectedVariation(v === selectedVariation ? "" : v)}>
-                    {v}
+                {sizes.map((s: string) => (
+                  <Badge key={s} variant={selSize === s ? "default" : "outline"} className="cursor-pointer px-3 py-1"
+                    data-testid={`badge-size-${s}`}
+                    onClick={() => { setSelSize(s); updateSelection(s, selColor, selModel); }}>
+                    {s}
                   </Badge>
                 ))}
               </div>
             </div>
           )}
+          {hasChildren && colors.length > 0 && (
+            <div>
+              <p className="text-sm font-medium mb-2">Cor</p>
+              <div className="flex flex-wrap gap-2">
+                {colors.map((c: string) => (
+                  <Badge key={c} variant={selColor === c ? "default" : "outline"} className="cursor-pointer px-3 py-1"
+                    data-testid={`badge-color-${c}`}
+                    onClick={() => { setSelColor(c); updateSelection(selSize, c, selModel); }}>
+                    {c}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+          {hasChildren && models.length > 0 && (
+            <div>
+              <p className="text-sm font-medium mb-2">Modelo</p>
+              <div className="flex flex-wrap gap-2">
+                {models.map((m: string) => (
+                  <Badge key={m} variant={selModel === m ? "default" : "outline"} className="cursor-pointer px-3 py-1"
+                    data-testid={`badge-model-${m}`}
+                    onClick={() => { setSelModel(m); updateSelection(selSize, selColor, m); }}>
+                    {m}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!hasChildren && (() => {
+            const allVariations: string[] = [];
+            if (sizes.length) allVariations.push(...sizes.map((s: string) => `Tamanho: ${s}`));
+            if (colors.length) allVariations.push(...colors.map((c: string) => `Cor: ${c}`));
+            if (models.length) allVariations.push(...models.map((m: string) => `Modelo: ${m}`));
+            if (allVariations.length === 0) return null;
+            return (
+              <div>
+                <p className="text-sm font-medium mb-2">Variações</p>
+                <div className="flex flex-wrap gap-2">
+                  {allVariations.map(v => (
+                    <Badge key={v} variant="outline" className="cursor-pointer">{v}</Badge>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          {selectedChild && (
+            <p className="text-xs text-muted-foreground">
+              Selecionado: {selectedChild.variationLabel}
+              {selectedChild.productType === "physical" && ` • Estoque: ${selectedChild.stockQuantity || 0}`}
+            </p>
+          )}
+
           <Button className="w-full" size="lg" style={{ backgroundColor: primaryColor }} data-testid="button-add-detail"
-            onClick={() => { onAddToCart(product, selectedVariation || undefined); }}>
+            onClick={() => {
+              if (selectedChild) {
+                onAddToCart(selectedChild, selectedChild.variationLabel || undefined);
+              } else {
+                onAddToCart(product);
+              }
+            }}>
             <ShoppingCart className="w-5 h-5 mr-2" /> Adicionar ao Carrinho
           </Button>
         </div>

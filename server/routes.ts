@@ -57,6 +57,8 @@ const createProductSchema = z.object({
   description: z.string().optional().nullable(),
   category: z.string().optional().nullable(),
   price: z.string().min(1),
+  wholesalePrice: z.string().optional().nullable(),
+  wholesaleMinQty: z.number().optional().default(1),
   internalCode: z.string().optional().nullable(),
   imageUrl: z.string().optional().nullable(),
   gallery: z.array(z.string()).optional().nullable(),
@@ -69,6 +71,12 @@ const createProductSchema = z.object({
   }).optional().nullable(),
   stockQuantity: z.number().optional().default(0),
   minStock: z.number().optional().default(0),
+  generateChildren: z.boolean().optional().default(false),
+  childOverrides: z.record(z.string(), z.object({
+    price: z.string().optional(),
+    wholesalePrice: z.string().optional(),
+    stockQuantity: z.number().optional(),
+  })).optional(),
 });
 
 const updateProductSchema = createProductSchema.partial();
@@ -307,18 +315,36 @@ export async function registerRoutes(
     if (!product) return res.status(404).json({ message: "Não encontrado" });
     res.json(product);
   });
+  app.get("/api/products/:id/children", requireAuth, async (req, res) => {
+    res.json(await storage.getChildProducts(parseInt(req.params.id), req.user!.companyId!));
+  });
   app.post("/api/products", requireAuth, async (req, res) => {
     try {
       const companyId = req.user!.companyId!;
       const data = createProductSchema.parse(req.body);
       const sku = await storage.getNextSku(companyId);
-      res.json(await storage.createProduct({ ...data, companyId, sku } as any));
+      const { generateChildren, childOverrides, ...productData } = data;
+
+      if (generateChildren && data.variations) {
+        const hasVariations = (data.variations.sizes?.length || 0) + (data.variations.colors?.length || 0) + (data.variations.models?.length || 0) > 0;
+        if (hasVariations) {
+          const result = await storage.createProductWithChildren(
+            { ...productData, companyId, sku } as any,
+            data.variations,
+            childOverrides
+          );
+          return res.json(result);
+        }
+      }
+
+      res.json(await storage.createProduct({ ...productData, companyId, sku } as any));
     } catch (err: any) { res.status(400).json({ message: err.message }); }
   });
   app.patch("/api/products/:id", requireAuth, async (req, res) => {
     try {
       const data = updateProductSchema.parse(req.body);
-      const updated = await storage.updateProduct(parseInt(req.params.id), req.user!.companyId!, data as any);
+      const { generateChildren, childOverrides, ...updateData } = data;
+      const updated = await storage.updateProduct(parseInt(req.params.id), req.user!.companyId!, updateData as any);
       if (!updated) return res.status(404).json({ message: "Não encontrado" });
       res.json(updated);
     } catch (err: any) { res.status(400).json({ message: err.message }); }

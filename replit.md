@@ -26,9 +26,11 @@ A multi-tenant SaaS platform where multiple companies can manage their orders, c
 - Internal chat/messaging system
 - Super Admin panel for platform management
 - Subscription plan structure (basic/professional/premium)
-- **Products module**: CRUD with categories, variations (size/color/model), physical/digital types, SKU auto-generation
-- **Inventory control**: Stock tracking, low stock alerts, movement history (in/out/sale/adjustment), automatic stock reduction on order finish
-- **Public online store**: Per-company store at `/loja/:slug`, product listing with search/filter, product detail, responsive design
+- **Products module**: CRUD with categories, parent/child product hierarchy, automatic sub-product generation from variations (size/color/model), wholesale + retail pricing, physical/digital types, SKU auto-generation
+- **Parent/child products**: Creating a product with variations (sizes + colors + models) auto-generates all combinations as child products. Each child has its own SKU, price, stock. Parent shows variation count, expandable list of children.
+- **Wholesale pricing**: Products support retail price + wholesale price with minimum quantity threshold
+- **Inventory control**: Stock tracking per product/variation, low stock alerts, movement history (in/out/sale/adjustment), automatic stock reduction on order finish
+- **Public online store**: Per-company store at `/loja/:slug`, product listing with search/filter, variation selector for parent products, price ranges, responsive design
 - **Shopping cart**: Add/remove/update quantities, variation selection, total calculation
 - **Checkout flow**: Client info form, automatic order + client creation, order code generation
 - **Order tracking**: Public page at `/rastrear/:code`, timeline view of order progress

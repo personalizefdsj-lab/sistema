@@ -52,7 +52,9 @@ export interface IStorage {
   getProducts(companyId: number): Promise<Product[]>;
   getProduct(id: number, companyId: number): Promise<Product | undefined>;
   getActiveProducts(companyId: number): Promise<Product[]>;
+  getChildProducts(parentId: number, companyId: number): Promise<Product[]>;
   createProduct(product: InsertProduct): Promise<Product>;
+  createProductWithChildren(parent: InsertProduct, variations: { sizes?: string[]; colors?: string[]; models?: string[] }, childOverrides?: Record<string, { price?: string; wholesalePrice?: string; stockQuantity?: number }>): Promise<{ parent: Product; children: Product[] }>;
   updateProduct(id: number, companyId: number, data: Partial<InsertProduct>): Promise<Product | undefined>;
   deleteProduct(id: number, companyId: number): Promise<void>;
   getNextSku(companyId: number): Promise<string>;
@@ -267,9 +269,69 @@ export class DatabaseStorage implements IStorage {
     ).orderBy(desc(products.createdAt));
   }
 
+  async getChildProducts(parentId: number, companyId: number): Promise<Product[]> {
+    return db.select().from(products).where(
+      and(eq(products.parentId, parentId), eq(products.companyId, companyId))
+    ).orderBy(products.variationLabel);
+  }
+
   async createProduct(product: InsertProduct): Promise<Product> {
     const [created] = await db.insert(products).values(product).returning();
     return created;
+  }
+
+  async createProductWithChildren(
+    parent: InsertProduct,
+    variations: { sizes?: string[]; colors?: string[]; models?: string[] },
+    childOverrides?: Record<string, { price?: string; wholesalePrice?: string; stockQuantity?: number }>
+  ): Promise<{ parent: Product; children: Product[] }> {
+    const parentProduct = await this.createProduct(parent);
+
+    const combos: { label: string; parts: string[] }[] = [];
+    const dims: string[][] = [];
+    if (variations.sizes?.length) dims.push(variations.sizes);
+    if (variations.colors?.length) dims.push(variations.colors);
+    if (variations.models?.length) dims.push(variations.models);
+
+    if (dims.length === 0) return { parent: parentProduct, children: [] };
+
+    const cartesian = (arrays: string[][]): string[][] => {
+      if (arrays.length === 0) return [[]];
+      const [first, ...rest] = arrays;
+      const restCombos = cartesian(rest);
+      return first.flatMap(item => restCombos.map(combo => [item, ...combo]));
+    };
+
+    const allCombos = cartesian(dims);
+    const children: Product[] = [];
+
+    for (const combo of allCombos) {
+      const label = combo.join(" / ");
+      const childName = `${parentProduct.name} ${combo.join(" ")}`;
+      const sku = await this.getNextSku(parent.companyId);
+      const overrides = childOverrides?.[label] || {};
+
+      const child = await this.createProduct({
+        companyId: parent.companyId,
+        parentId: parentProduct.id,
+        name: childName,
+        description: parent.description,
+        category: parent.category,
+        price: overrides.price || parent.price,
+        wholesalePrice: overrides.wholesalePrice || parent.wholesalePrice,
+        wholesaleMinQty: parent.wholesaleMinQty,
+        imageUrl: parent.imageUrl,
+        active: true,
+        productType: parent.productType,
+        variationLabel: label,
+        stockQuantity: overrides.stockQuantity ?? parent.stockQuantity ?? 0,
+        minStock: parent.minStock,
+        sku,
+      });
+      children.push(child);
+    }
+
+    return { parent: parentProduct, children };
   }
 
   async updateProduct(id: number, companyId: number, data: Partial<InsertProduct>): Promise<Product | undefined> {
@@ -280,6 +342,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteProduct(id: number, companyId: number): Promise<void> {
+    const children = await this.getChildProducts(id, companyId);
+    for (const child of children) {
+      await db.delete(stockMovements).where(eq(stockMovements.productId, child.id));
+      await db.delete(products).where(eq(products.id, child.id));
+    }
     await db.delete(stockMovements).where(eq(stockMovements.productId, id));
     await db.delete(products).where(and(eq(products.id, id), eq(products.companyId, companyId)));
   }
