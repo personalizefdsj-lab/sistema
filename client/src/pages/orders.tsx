@@ -249,41 +249,72 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
     setCustomTotal("");
   };
 
-  const getApplicablePrice = (product: Product, quantity: number) => {
-    if (product.wholesalePrice && product.wholesaleMinQty && quantity >= product.wholesaleMinQty) {
-      return product.wholesalePrice;
+  const getProductFamily = (product: Product) => {
+    return product.parentId || product.id;
+  };
+
+  const getFamilyTotalQty = (items: OrderItemDraft[], currentProductId: number, extraQty = 0) => {
+    const product = products.find(p => p.id === currentProductId);
+    if (!product) return extraQty;
+    const familyId = getProductFamily(product);
+    let total = extraQty;
+    for (const item of items) {
+      const itemProduct = products.find(p => p.id === item.productId);
+      if (itemProduct && getProductFamily(itemProduct) === familyId) {
+        total += item.quantity;
+      }
     }
-    return product.price;
+    return total;
+  };
+
+  const recalcPrices = (items: OrderItemDraft[]) => {
+    return items.map(item => {
+      const product = products.find(p => p.id === item.productId);
+      if (!product) return item;
+      const familyId = getProductFamily(product);
+      let familyTotal = 0;
+      for (const i of items) {
+        const ip = products.find(p => p.id === i.productId);
+        if (ip && getProductFamily(ip) === familyId) familyTotal += i.quantity;
+      }
+      const useWholesale = product.wholesalePrice && product.wholesaleMinQty && familyTotal >= product.wholesaleMinQty;
+      const newPrice = useWholesale ? product.wholesalePrice : product.price;
+      return { ...item, unitPrice: newPrice };
+    });
   };
 
   const addProduct = (product: Product) => {
     setOrderItems(prev => {
       const existing = prev.find(i => i.productId === product.id);
+      let updated: OrderItemDraft[];
       if (existing) {
-        const newQty = existing.quantity + 1;
-        const newPrice = getApplicablePrice(product, newQty);
-        return prev.map(i => i.productId === product.id ? { ...i, quantity: newQty, unitPrice: newPrice } : i);
+        updated = prev.map(i => i.productId === product.id ? { ...i, quantity: i.quantity + 1 } : i);
+      } else {
+        updated = [...prev, { productId: product.id, productName: product.name, quantity: 1, unitPrice: product.price }];
       }
-      return [...prev, { productId: product.id, productName: product.name, quantity: 1, unitPrice: getApplicablePrice(product, 1) }];
+      return recalcPrices(updated);
     });
     setShowProductPicker(false);
   };
 
   const updateItemQuantity = (productId: number, delta: number) => {
-    setOrderItems(prev => prev.map(i => {
-      if (i.productId === productId) {
-        const newQty = i.quantity + delta;
-        if (newQty <= 0) return i;
-        const product = products.find(p => p.id === productId);
-        const newPrice = product ? getApplicablePrice(product, newQty) : i.unitPrice;
-        return { ...i, quantity: newQty, unitPrice: newPrice };
-      }
-      return i;
-    }));
+    setOrderItems(prev => {
+      const updated = prev.map(i => {
+        if (i.productId === productId) {
+          const newQty = i.quantity + delta;
+          return newQty > 0 ? { ...i, quantity: newQty } : i;
+        }
+        return i;
+      });
+      return recalcPrices(updated);
+    });
   };
 
   const removeItem = (productId: number) => {
-    setOrderItems(prev => prev.filter(i => i.productId !== productId));
+    setOrderItems(prev => {
+      const updated = prev.filter(i => i.productId !== productId);
+      return recalcPrices(updated);
+    });
   };
 
   const handleSubmit = async () => {
@@ -419,7 +450,15 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
               <div className="space-y-2">
                 {orderItems.map(item => {
                   const product = products.find(p => p.id === item.productId);
-                  const isWholesale = product?.wholesalePrice && product?.wholesaleMinQty && item.quantity >= product.wholesaleMinQty;
+                  const familyId = product ? getProductFamily(product) : null;
+                  let familyTotal = 0;
+                  if (familyId) {
+                    for (const i of orderItems) {
+                      const ip = products.find(p => p.id === i.productId);
+                      if (ip && getProductFamily(ip) === familyId) familyTotal += i.quantity;
+                    }
+                  }
+                  const isWholesale = product?.wholesalePrice && product?.wholesaleMinQty && familyTotal >= product.wholesaleMinQty;
                   return (
                     <div key={item.productId} className="flex items-center gap-2 border rounded-lg p-2" data-testid={`order-item-${item.productId}`}>
                       <div className="flex-1 min-w-0">
