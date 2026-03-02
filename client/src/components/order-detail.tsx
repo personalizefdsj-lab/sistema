@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -5,12 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { ORDER_STATUSES, ORDER_STATUS_LABELS, FINANCIAL_STATUS_LABELS } from "@shared/schema";
-import type { Order, Client, OrderHistory } from "@shared/schema";
-import { ArrowLeft, AlertTriangle, Clock, Phone, History } from "lucide-react";
+import type { Order, Client, OrderHistory, OrderItem, Product } from "@shared/schema";
+import { ArrowLeft, AlertTriangle, Clock, Phone, History, Package, Calendar } from "lucide-react";
 import { format } from "date-fns";
 
 const statusColors: Record<string, string> = {
@@ -42,6 +45,14 @@ export default function OrderDetail({
     queryKey: ["/api/orders", orderId, "history"],
   });
 
+  const { data: orderItems = [] } = useQuery<OrderItem[]>({
+    queryKey: ["/api/orders", orderId, "items"],
+  });
+
+  const { data: products = [] } = useQuery<Product[]>({
+    queryKey: ["/api/products"],
+  });
+
   const updateMutation = useMutation({
     mutationFn: async (data: any) => {
       const res = await apiRequest("PATCH", `/api/orders/${orderId}`, data);
@@ -71,6 +82,7 @@ export default function OrderDetail({
   const client = clients.find(c => c.id === order.clientId);
   const remaining = Math.max(0, parseFloat(order.totalValue || "0") - parseFloat(order.receivedValue || "0"));
   const statusIndex = ORDER_STATUSES.indexOf(order.status as any);
+  const itemsTotal = orderItems.reduce((sum, item) => sum + parseFloat(item.unitPrice || "0") * item.quantity, 0);
 
   const sendWhatsApp = () => {
     if (!client) return;
@@ -87,7 +99,7 @@ export default function OrderDetail({
         <Button variant="ghost" size="icon" onClick={onBack} data-testid="button-back">
           <ArrowLeft className="w-4 h-4" />
         </Button>
-        <div>
+        <div className="flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-xl font-semibold font-mono" data-testid="text-order-code">{order.code}</h1>
             {order.urgent && (
@@ -95,6 +107,9 @@ export default function OrderDetail({
                 <AlertTriangle className="w-3 h-3 mr-1" />
                 Urgente
               </Badge>
+            )}
+            {order.source === "online" && (
+              <Badge variant="secondary">Online</Badge>
             )}
           </div>
           <p className="text-sm text-muted-foreground">
@@ -133,14 +148,24 @@ export default function OrderDetail({
           <CardContent className="space-y-4">
             <div>
               <Label className="text-muted-foreground text-xs">Cliente</Label>
-              <p className="font-medium">{client?.name || "—"}</p>
+              <p className="font-medium" data-testid="text-client-name">{client?.name || "—"}</p>
               {client?.phone && (
                 <p className="text-sm text-muted-foreground">{client.phone}</p>
               )}
             </div>
-            <div>
+            <div className="space-y-1">
               <Label className="text-muted-foreground text-xs">Descrição</Label>
-              <p className="text-sm">{order.description || "Sem descrição"}</p>
+              <Textarea
+                data-testid="input-order-description"
+                defaultValue={order.description || ""}
+                placeholder="Adicionar descrição do pedido..."
+                rows={3}
+                onBlur={e => {
+                  if (e.target.value !== (order.description || "")) {
+                    updateMutation.mutate({ description: e.target.value || null });
+                  }
+                }}
+              />
             </div>
             <div>
               <Label className="text-muted-foreground text-xs">Status</Label>
@@ -157,6 +182,35 @@ export default function OrderDetail({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-muted-foreground text-xs flex items-center gap-1">
+                <Calendar className="w-3 h-3" />
+                Previsão de Entrega
+              </Label>
+              <Input
+                data-testid="input-delivery-date"
+                type="date"
+                defaultValue={order.deliveryDate ? format(new Date(order.deliveryDate), "yyyy-MM-dd") : ""}
+                onBlur={e => {
+                  const newVal = e.target.value || null;
+                  const oldVal = order.deliveryDate ? format(new Date(order.deliveryDate), "yyyy-MM-dd") : null;
+                  if (newVal !== oldVal) {
+                    updateMutation.mutate({ deliveryDate: newVal });
+                  }
+                }}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label className="text-muted-foreground text-xs flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" />
+                Pedido Urgente
+              </Label>
+              <Switch
+                data-testid="switch-urgent"
+                checked={!!order.urgent}
+                onCheckedChange={(v) => updateMutation.mutate({ urgent: v })}
+              />
             </div>
             <div className="flex gap-2">
               <Button onClick={sendWhatsApp} variant="outline" className="flex-1" data-testid="button-whatsapp">
@@ -175,19 +229,19 @@ export default function OrderDetail({
             <div className="grid grid-cols-3 gap-3">
               <div className="text-center p-3 rounded-md bg-muted/50">
                 <p className="text-xs text-muted-foreground">Total</p>
-                <p className="font-bold text-lg">
+                <p className="font-bold text-lg" data-testid="text-order-total">
                   R$ {parseFloat(order.totalValue || "0").toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                 </p>
               </div>
               <div className="text-center p-3 rounded-md bg-emerald-50 dark:bg-emerald-950/20">
                 <p className="text-xs text-muted-foreground">Recebido</p>
-                <p className="font-bold text-lg text-emerald-600 dark:text-emerald-400">
+                <p className="font-bold text-lg text-emerald-600 dark:text-emerald-400" data-testid="text-order-received">
                   R$ {parseFloat(order.receivedValue || "0").toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                 </p>
               </div>
               <div className="text-center p-3 rounded-md bg-amber-50 dark:bg-amber-950/20">
                 <p className="text-xs text-muted-foreground">Restante</p>
-                <p className="font-bold text-lg text-amber-600 dark:text-amber-400">
+                <p className="font-bold text-lg text-amber-600 dark:text-amber-400" data-testid="text-order-remaining">
                   R$ {remaining.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                 </p>
               </div>
@@ -217,6 +271,41 @@ export default function OrderDetail({
           </CardContent>
         </Card>
       </div>
+
+      {orderItems.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Package className="w-4 h-4" />
+              Produtos do Pedido
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {orderItems.map((item, idx) => (
+                <div key={item.id || idx} className="flex items-center justify-between gap-3 p-3 rounded-md bg-muted/30 border" data-testid={`order-item-detail-${item.id}`}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate" data-testid={`text-item-name-${item.id}`}>
+                      {products.find(p => p.id === item.productId)?.name || `Produto #${item.productId}`}
+                      {item.variation && <span className="text-muted-foreground ml-1">({item.variation})</span>}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {item.quantity}x R$ {parseFloat(item.unitPrice || "0").toFixed(2)}
+                    </p>
+                  </div>
+                  <p className="text-sm font-semibold" data-testid={`text-item-subtotal-${item.id}`}>
+                    R$ {(parseFloat(item.unitPrice || "0") * item.quantity).toFixed(2)}
+                  </p>
+                </div>
+              ))}
+              <div className="flex items-center justify-between pt-3 border-t mt-3">
+                <span className="text-sm font-semibold">Total dos Itens</span>
+                <span className="text-sm font-bold" data-testid="text-items-total">R$ {itemsTotal.toFixed(2)}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
