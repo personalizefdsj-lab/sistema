@@ -32,6 +32,7 @@ export interface IStorage {
   getClientByPhone(phone: string, companyId: number): Promise<Client | undefined>;
   createClient(client: InsertClient): Promise<Client>;
   updateClient(id: number, companyId: number, data: Partial<InsertClient>): Promise<Client | undefined>;
+  deleteClient(id: number, companyId: number): Promise<void>;
   searchClients(companyId: number, query: string): Promise<Client[]>;
 
   getOrders(companyId: number): Promise<Order[]>;
@@ -170,6 +171,10 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(clients.id, id), eq(clients.companyId, companyId)))
       .returning();
     return updated;
+  }
+
+  async deleteClient(id: number, companyId: number): Promise<void> {
+    await db.delete(clients).where(and(eq(clients.id, id), eq(clients.companyId, companyId)));
   }
 
   async searchClients(companyId: number, query: string): Promise<Client[]> {

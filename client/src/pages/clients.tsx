@@ -11,7 +11,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import type { Client, Order } from "@shared/schema";
-import { Plus, Search, Users, Phone, Mail, Edit2, MapPin, FileText } from "lucide-react";
+import { Plus, Search, Users, Phone, Mail, Edit2, MapPin, FileText, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ORDER_STATUS_LABELS, FINANCIAL_STATUS_LABELS } from "@shared/schema";
 import { format } from "date-fns";
 
@@ -21,6 +31,7 @@ export default function ClientsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editClient, setEditClient] = useState<Client | null>(null);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Client | null>(null);
 
   const { data: clients = [], isLoading } = useQuery<Client[]>({ queryKey: ["/api/clients"] });
 
@@ -51,6 +62,21 @@ export default function ClientsPage() {
     },
     onError: (err: any) => {
       toast({ title: "Erro", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/clients/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+      setDeleteTarget(null);
+      toast({ title: "Cliente excluído com sucesso" });
+    },
+    onError: (err: any) => {
+      setDeleteTarget(null);
+      toast({ title: "Erro ao excluir", description: err.message, variant: "destructive" });
     },
   });
 
@@ -183,14 +209,25 @@ export default function ClientsPage() {
                       </div>
                     )}
                   </div>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={(e) => { e.stopPropagation(); setEditClient(client); }}
-                    data-testid={`button-edit-client-${client.id}`}
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={(e) => { e.stopPropagation(); setEditClient(client); }}
+                      data-testid={`button-edit-client-${client.id}`}
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive"
+                      onClick={(e) => { e.stopPropagation(); setDeleteTarget(client); }}
+                      data-testid={`button-delete-client-${client.id}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -216,6 +253,28 @@ export default function ClientsPage() {
       </Dialog>
 
       <ClientOrdersModal client={selectedClient} onClose={() => setSelectedClient(null)} />
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(v) => !v && setDeleteTarget(null)}>
+        <AlertDialogContent data-testid="dialog-delete-client">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir Cliente</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir o cliente <strong>{deleteTarget?.name}</strong>? Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
+              disabled={deleteMutation.isPending}
+              data-testid="button-confirm-delete"
+            >
+              {deleteMutation.isPending ? "Excluindo..." : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

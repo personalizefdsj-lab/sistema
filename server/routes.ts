@@ -292,6 +292,20 @@ export async function registerRoutes(
       res.json(updated);
     } catch (err: any) { res.status(400).json({ message: err.message }); }
   });
+  app.delete("/api/clients/:id", requireAuth, async (req, res) => {
+    try {
+      const companyId = req.user!.companyId!;
+      const clientId = parseInt(req.params.id);
+      const client = await storage.getClient(clientId, companyId);
+      if (!client) return res.status(404).json({ message: "Cliente não encontrado" });
+      const orders = await storage.getOrdersByClient(clientId, companyId);
+      if (orders.length > 0) {
+        return res.status(400).json({ message: `Este cliente possui ${orders.length} pedido(s) vinculado(s). Remova os pedidos antes de excluir o cliente.` });
+      }
+      await storage.deleteClient(clientId, companyId);
+      res.json({ success: true });
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
 
   app.get("/api/orders", requireAuth, requirePermission("orders"), async (req, res) => { res.json(await storage.getOrders(req.user!.companyId!)); });
   app.get("/api/orders/:id", requireAuth, async (req, res) => {
