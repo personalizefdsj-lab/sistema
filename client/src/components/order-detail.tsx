@@ -80,6 +80,7 @@ export default function OrderDetail({
       queryClient.invalidateQueries({ queryKey: ["/api/orders", orderId] });
       queryClient.invalidateQueries({ queryKey: ["/api/orders", orderId, "history"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/financial"] });
       toast({ title: "Pedido atualizado" });
     },
     onError: (err: any) => {
@@ -403,6 +404,7 @@ export default function OrderDetail({
                 <div className="space-y-2">
                   <Label>Valor Total (R$)</Label>
                   <Input
+                    key={`total-${order.totalValue}`}
                     type="number"
                     step="0.01"
                     defaultValue={order.totalValue || "0"}
@@ -413,6 +415,7 @@ export default function OrderDetail({
                 <div className="space-y-2">
                   <Label>Valor Recebido (R$)</Label>
                   <Input
+                    key={`received-${order.receivedValue}`}
                     type="number"
                     step="0.01"
                     defaultValue={order.receivedValue || "0"}

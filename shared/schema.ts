@@ -212,6 +212,8 @@ export const STOCK_MOVEMENT_TYPES: Record<string, string> = {
 };
 
 export const EXPENSE_CATEGORIES: Record<string, string> = {
+  venda: "Venda",
+  "Recebimento de Pedido": "Recebimento de Pedido",
   luz: "Energia Elétrica",
   internet: "Internet",
   agua: "Água",

@@ -363,10 +363,11 @@ export async function registerRoutes(
 
       if (data.receivedValue !== undefined) {
         const oldReceived = parseFloat(existing.receivedValue || "0");
-        const newReceived = parseFloat(data.receivedValue || "0");
+        const newReceived = parseFloat(String(data.receivedValue) || "0");
         const diff = newReceived - oldReceived;
+        console.log(`[Financial] Order ${existing.code}: oldReceived=${oldReceived}, newReceived=${newReceived}, diff=${diff}`);
         if (diff > 0) {
-          await storage.createExpense({
+          const entry = await storage.createExpense({
             companyId,
             type: "income",
             category: "Recebimento de Pedido",
@@ -374,6 +375,7 @@ export async function registerRoutes(
             amount: diff.toFixed(2),
             date: new Date(),
           });
+          console.log(`[Financial] Created income entry id=${entry.id} amount=${diff.toFixed(2)} for order ${existing.code}`);
         }
       }
 
