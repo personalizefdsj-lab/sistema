@@ -361,7 +361,28 @@ export async function registerRoutes(
         else data.financialStatus = "pending";
       }
 
-      res.json(await storage.updateOrder(orderId, companyId, data as any));
+      if (data.receivedValue !== undefined) {
+        const oldReceived = parseFloat(existing.receivedValue || "0");
+        const newReceived = parseFloat(data.receivedValue || "0");
+        const diff = newReceived - oldReceived;
+        if (diff > 0) {
+          await storage.createExpense({
+            companyId,
+            type: "income",
+            category: "Recebimento de Pedido",
+            description: `Pagamento pedido ${existing.code} (R$ ${diff.toFixed(2)})`,
+            amount: diff.toFixed(2),
+            date: new Date(),
+          });
+        }
+      }
+
+      const updateData: any = { ...data };
+      if (updateData.deliveryDate !== undefined) {
+        updateData.deliveryDate = updateData.deliveryDate ? new Date(updateData.deliveryDate) : null;
+      }
+
+      res.json(await storage.updateOrder(orderId, companyId, updateData));
     } catch (err: any) { res.status(400).json({ message: err.message }); }
   });
   app.delete("/api/orders/:id", requireAuth, async (req, res) => {

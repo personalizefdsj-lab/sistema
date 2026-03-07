@@ -5,7 +5,7 @@ A multi-tenant SaaS platform where multiple companies can manage their orders, c
 
 ## Tech Stack
 - **Frontend**: React + TypeScript + Tailwind CSS + Shadcn/UI + Wouter routing + TanStack Query
-- **Backend**: Express.js + TypeScript + Passport.js (local auth) + Express Sessions + Multer (file uploads)
+- **Backend**: Express.js + TypeScript + Passport.js (local auth) + Express Sessions + Multer (file uploads) + Nodemailer (email)
 - **Database**: PostgreSQL with Drizzle ORM
 - **Build**: Vite
 
@@ -25,6 +25,8 @@ A multi-tenant SaaS platform where multiple companies can manage their orders, c
 - Client management with expanded fields (person type, document/CPF/CNPJ, address, phone optional)
 - Financial tracking per order (paid/partial/pending)
 - Financial expense control (income/expense entries with categories)
+- Order payments auto-create income entries in financial module
+- Dark mode with toggle in sidebar (persisted to localStorage)
 - Auto-alert for late orders (red "Atrasado" badge when delivery date passed)
 - Auto-remove urgent flag when order status changed to "finished"
 - Employee management with permission-based access control

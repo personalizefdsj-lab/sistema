@@ -1,4 +1,5 @@
 import { useAuth } from "@/lib/auth";
+import { useTheme } from "@/components/theme-provider";
 import { useLocation, Link } from "wouter";
 import {
   Sidebar,
@@ -32,10 +33,13 @@ import {
   UserCog,
   DollarSign,
   Monitor,
+  Moon,
+  Sun,
 } from "lucide-react";
 
 export function AppSidebar() {
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [location] = useLocation();
 
   const isSuperAdmin = user?.role === "superadmin";
@@ -166,7 +170,16 @@ export function AppSidebar() {
           </SidebarGroup>
         )}
       </SidebarContent>
-      <SidebarFooter className="p-4">
+      <SidebarFooter className="p-4 space-y-1">
+        <Button
+          variant="ghost"
+          className="w-full justify-start"
+          onClick={toggleTheme}
+          data-testid="button-toggle-theme"
+        >
+          {theme === "dark" ? <Sun className="w-4 h-4 mr-2" /> : <Moon className="w-4 h-4 mr-2" />}
+          {theme === "dark" ? "Modo Claro" : "Modo Escuro"}
+        </Button>
         <Button
           variant="ghost"
           className="w-full justify-start"

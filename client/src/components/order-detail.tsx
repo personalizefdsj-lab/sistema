@@ -263,7 +263,7 @@ export default function OrderDetail({
               {order.deliveryDate && <p className="text-sm">Entrega: {format(new Date(order.deliveryDate), "dd/MM/yyyy")}</p>}
             </div>
           </div>
-          <div className="mb-4 p-3 bg-gray-50 rounded">
+          <div className="mb-4 p-3 bg-muted rounded">
             <p className="font-semibold">Cliente: {client?.name || "—"}</p>
             {client?.phone && <p className="text-sm">Tel: {client.phone}</p>}
             {client?.email && <p className="text-sm">Email: {client.email}</p>}

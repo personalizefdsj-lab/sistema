@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { ThemeProvider } from "@/components/theme-provider";
 import { Skeleton } from "@/components/ui/skeleton";
 import NotFound from "@/pages/not-found";
 import AuthPage from "@/pages/auth-page";
@@ -104,20 +105,22 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <AuthProvider>
-          <Toaster />
-          <Switch>
-            <Route path="/loja/:slug" component={PublicStore} />
-            <Route path="/portal/:slug" component={ClientPortal} />
-            <Route path="/rastrear/:code" component={TrackingPage} />
-            <Route path="/rastrear" component={TrackingPage} />
-            <Route>
-              <ProtectedRouter />
-            </Route>
-          </Switch>
-        </AuthProvider>
-      </TooltipProvider>
+      <ThemeProvider>
+        <TooltipProvider>
+          <AuthProvider>
+            <Toaster />
+            <Switch>
+              <Route path="/loja/:slug" component={PublicStore} />
+              <Route path="/portal/:slug" component={ClientPortal} />
+              <Route path="/rastrear/:code" component={TrackingPage} />
+              <Route path="/rastrear" component={TrackingPage} />
+              <Route>
+                <ProtectedRouter />
+              </Route>
+            </Switch>
+          </AuthProvider>
+        </TooltipProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
