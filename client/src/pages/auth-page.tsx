@@ -90,6 +90,9 @@ export default function AuthPage() {
                       {loginLoading ? "Entrando..." : "Entrar"}
                       <ArrowRight className="w-4 h-4 ml-2" />
                     </Button>
+                    <p className="text-xs text-center text-muted-foreground mt-2" data-testid="text-forgot-password">
+                      Esqueceu a senha? Entre em contato com o administrador da sua empresa para redefini-la.
+                    </p>
                   </form>
                 </CardContent>
               </Card>

@@ -20,6 +20,10 @@ import SalesDashboardPage from "@/pages/sales-dashboard";
 import PublicStore from "@/pages/store";
 import TrackingPage from "@/pages/tracking";
 import ClientPortal from "@/pages/client-portal";
+import SettingsPage from "@/pages/settings";
+import EmployeesPage from "@/pages/employees";
+import FinancialPage from "@/pages/financial";
+import PdvPage from "@/pages/pdv";
 
 function ProtectedRouter() {
   const { user, isLoading } = useAuth();
@@ -64,6 +68,10 @@ function ProtectedRouter() {
         <Route path="/products" component={ProductsPage} />
         <Route path="/stock" component={StockPage} />
         <Route path="/sales" component={SalesDashboardPage} />
+        <Route path="/settings" component={SettingsPage} />
+        <Route path="/employees" component={EmployeesPage} />
+        <Route path="/financial" component={FinancialPage} />
+        <Route path="/pdv" component={PdvPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>

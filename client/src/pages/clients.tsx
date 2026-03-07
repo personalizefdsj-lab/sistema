@@ -6,11 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import type { Client, Order } from "@shared/schema";
-import { Plus, Search, Users, Phone, Mail, Edit2, ChevronRight, X } from "lucide-react";
+import { Plus, Search, Users, Phone, Mail, Edit2, MapPin, FileText } from "lucide-react";
 import { ORDER_STATUS_LABELS, FINANCIAL_STATUS_LABELS } from "@shared/schema";
 import { format } from "date-fns";
 
@@ -57,7 +58,8 @@ export default function ClientsPage() {
     const q = search.replace(/[\s\-\.]/g, "").toLowerCase();
     return q === "" ||
       c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.phone.replace(/[\s\-\.]/g, "").includes(q);
+      (c.phone && c.phone.replace(/[\s\-\.]/g, "").includes(q)) ||
+      (c.document && c.document.replace(/[\s\-\.\/]/g, "").includes(q));
   });
 
   const handleCreate = (e: React.FormEvent<HTMLFormElement>) => {
@@ -65,8 +67,15 @@ export default function ClientsPage() {
     const form = new FormData(e.currentTarget);
     createMutation.mutate({
       name: form.get("name"),
-      phone: form.get("phone"),
+      phone: form.get("phone") || null,
       email: form.get("email") || null,
+      personType: form.get("personType") || null,
+      document: form.get("document") || null,
+      address: form.get("address") || null,
+      neighborhood: form.get("neighborhood") || null,
+      streetNumber: form.get("streetNumber") || null,
+      city: form.get("city") || null,
+      state: form.get("state") || null,
     });
   };
 
@@ -77,8 +86,15 @@ export default function ClientsPage() {
     updateMutation.mutate({
       id: editClient.id,
       name: form.get("name"),
-      phone: form.get("phone"),
+      phone: form.get("phone") || null,
       email: form.get("email") || null,
+      personType: form.get("personType") || null,
+      document: form.get("document") || null,
+      address: form.get("address") || null,
+      neighborhood: form.get("neighborhood") || null,
+      streetNumber: form.get("streetNumber") || null,
+      city: form.get("city") || null,
+      state: form.get("state") || null,
     });
   };
 
@@ -98,27 +114,11 @@ export default function ClientsPage() {
               Novo Cliente
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Novo Cliente</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleCreate} className="space-y-4">
-              <div className="space-y-2">
-                <Label>Nome</Label>
-                <Input name="name" required data-testid="input-client-name" />
-              </div>
-              <div className="space-y-2">
-                <Label>Celular</Label>
-                <Input name="phone" required data-testid="input-client-phone" />
-              </div>
-              <div className="space-y-2">
-                <Label>Email (opcional)</Label>
-                <Input name="email" type="email" data-testid="input-client-email" />
-              </div>
-              <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-create-client">
-                {createMutation.isPending ? "Criando..." : "Criar Cliente"}
-              </Button>
-            </form>
+            <ClientForm onSubmit={handleCreate} isPending={createMutation.isPending} submitLabel="Criar Cliente" testIdPrefix="create" />
           </DialogContent>
         </Dialog>
       </div>
@@ -126,7 +126,7 @@ export default function ClientsPage() {
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
-          placeholder="Buscar por nome ou telefone..."
+          placeholder="Buscar por nome, telefone ou documento..."
           className="pl-9"
           value={search}
           onChange={e => setSearch(e.target.value)}
@@ -158,14 +158,28 @@ export default function ClientsPage() {
                     <p className="font-medium truncate" data-testid={`text-client-name-${client.id}`}>
                       {client.name}
                     </p>
-                    <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-1">
-                      <Phone className="w-3 h-3 flex-shrink-0" />
-                      <span className="truncate">{client.phone}</span>
-                    </div>
+                    {client.phone && (
+                      <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-1">
+                        <Phone className="w-3 h-3 flex-shrink-0" />
+                        <span className="truncate">{client.phone}</span>
+                      </div>
+                    )}
                     {client.email && (
                       <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-0.5">
                         <Mail className="w-3 h-3 flex-shrink-0" />
                         <span className="truncate">{client.email}</span>
+                      </div>
+                    )}
+                    {client.document && (
+                      <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-0.5">
+                        <FileText className="w-3 h-3 flex-shrink-0" />
+                        <span className="truncate">{client.document}</span>
+                      </div>
+                    )}
+                    {(client as any).city && (
+                      <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-0.5">
+                        <MapPin className="w-3 h-3 flex-shrink-0" />
+                        <span className="truncate">{(client as any).city}{(client as any).state ? ` - ${(client as any).state}` : ""}</span>
                       </div>
                     )}
                   </div>
@@ -185,34 +199,110 @@ export default function ClientsPage() {
       )}
 
       <Dialog open={!!editClient} onOpenChange={(v) => !v && setEditClient(null)}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Editar Cliente</DialogTitle>
           </DialogHeader>
           {editClient && (
-            <form onSubmit={handleEdit} className="space-y-4">
-              <div className="space-y-2">
-                <Label>Nome</Label>
-                <Input name="name" defaultValue={editClient.name} required data-testid="input-edit-client-name" />
-              </div>
-              <div className="space-y-2">
-                <Label>Celular</Label>
-                <Input name="phone" defaultValue={editClient.phone} required data-testid="input-edit-client-phone" />
-              </div>
-              <div className="space-y-2">
-                <Label>Email</Label>
-                <Input name="email" type="email" defaultValue={editClient.email || ""} data-testid="input-edit-client-email" />
-              </div>
-              <Button type="submit" className="w-full" disabled={updateMutation.isPending} data-testid="button-save-client">
-                {updateMutation.isPending ? "Salvando..." : "Salvar"}
-              </Button>
-            </form>
+            <ClientForm
+              onSubmit={handleEdit}
+              isPending={updateMutation.isPending}
+              submitLabel="Salvar"
+              testIdPrefix="edit"
+              defaultValues={editClient}
+            />
           )}
         </DialogContent>
       </Dialog>
 
       <ClientOrdersModal client={selectedClient} onClose={() => setSelectedClient(null)} />
     </div>
+  );
+}
+
+function ClientForm({
+  onSubmit,
+  isPending,
+  submitLabel,
+  testIdPrefix,
+  defaultValues,
+}: {
+  onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
+  isPending: boolean;
+  submitLabel: string;
+  testIdPrefix: string;
+  defaultValues?: Client;
+}) {
+  const [personType, setPersonType] = useState(defaultValues?.personType || "");
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-4">
+      <div className="space-y-2">
+        <Label>Nome *</Label>
+        <Input name="name" required defaultValue={defaultValues?.name || ""} data-testid={`input-${testIdPrefix}-client-name`} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label>Tipo de Pessoa</Label>
+          <Select name="personType" value={personType} onValueChange={setPersonType}>
+            <SelectTrigger data-testid={`select-${testIdPrefix}-person-type`}>
+              <SelectValue placeholder="Selecione" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="fisica">Pessoa Física</SelectItem>
+              <SelectItem value="juridica">Pessoa Jurídica</SelectItem>
+            </SelectContent>
+          </Select>
+          <input type="hidden" name="personType" value={personType} />
+        </div>
+        <div className="space-y-2">
+          <Label>{personType === "juridica" ? "CNPJ" : "CPF"}</Label>
+          <Input
+            name="document"
+            defaultValue={defaultValues?.document || ""}
+            placeholder={personType === "juridica" ? "00.000.000/0000-00" : "000.000.000-00"}
+            data-testid={`input-${testIdPrefix}-client-document`}
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label>Celular</Label>
+          <Input name="phone" defaultValue={defaultValues?.phone || ""} placeholder="(00) 00000-0000" data-testid={`input-${testIdPrefix}-client-phone`} />
+        </div>
+        <div className="space-y-2">
+          <Label>Email</Label>
+          <Input name="email" type="email" defaultValue={defaultValues?.email || ""} data-testid={`input-${testIdPrefix}-client-email`} />
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Label>Endereço</Label>
+        <Input name="address" defaultValue={defaultValues?.address || ""} placeholder="Rua, Avenida..." data-testid={`input-${testIdPrefix}-client-address`} />
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <div className="space-y-2">
+          <Label>Número</Label>
+          <Input name="streetNumber" defaultValue={(defaultValues as any)?.streetNumber || ""} data-testid={`input-${testIdPrefix}-client-number`} />
+        </div>
+        <div className="col-span-2 space-y-2">
+          <Label>Bairro</Label>
+          <Input name="neighborhood" defaultValue={(defaultValues as any)?.neighborhood || ""} data-testid={`input-${testIdPrefix}-client-neighborhood`} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label>Cidade</Label>
+          <Input name="city" defaultValue={(defaultValues as any)?.city || ""} data-testid={`input-${testIdPrefix}-client-city`} />
+        </div>
+        <div className="space-y-2">
+          <Label>Estado</Label>
+          <Input name="state" defaultValue={(defaultValues as any)?.state || ""} placeholder="UF" maxLength={2} data-testid={`input-${testIdPrefix}-client-state`} />
+        </div>
+      </div>
+      <Button type="submit" className="w-full" disabled={isPending} data-testid={`button-${testIdPrefix}-client`}>
+        {isPending ? "Salvando..." : submitLabel}
+      </Button>
+    </form>
   );
 }
 

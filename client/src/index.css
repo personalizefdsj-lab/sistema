@@ -286,3 +286,49 @@
     inset: -1px;
   }
 }
+
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .no-print,
+  header,
+  nav,
+  aside,
+  [data-sidebar],
+  .print-hide-items button {
+    display: none !important;
+  }
+
+  .print-header {
+    display: block !important;
+  }
+
+  .print-table {
+    display: block !important;
+  }
+
+  .print-description {
+    display: block !important;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #ddd;
+  }
+
+  .print-hide-items {
+    display: none !important;
+  }
+
+  .print-content {
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+
+  main {
+    overflow: visible !important;
+  }
+}

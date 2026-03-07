@@ -17,6 +17,7 @@ declare global {
       name: string;
       role: string;
       companyId: number | null;
+      permissions: string[] | null;
     }
   }
 }
@@ -79,6 +80,7 @@ export function setupAuth(app: Express) {
           name: user.name,
           role: user.role,
           companyId: user.companyId,
+          permissions: user.permissions as string[] | null,
         });
       } catch (err) {
         return done(err);
@@ -100,6 +102,7 @@ export function setupAuth(app: Express) {
         name: user.name,
         role: user.role,
         companyId: user.companyId,
+        permissions: user.permissions as string[] | null,
       });
     } catch (err) {
       done(err);
@@ -119,4 +122,21 @@ export function requireSuperAdmin(req: Request, res: any, next: any) {
     return res.status(403).json({ message: "Forbidden" });
   }
   next();
+}
+
+export function requirePermission(permission: string) {
+  return (req: Request, res: any, next: any) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+    const user = req.user!;
+    if (user.role === "superadmin" || user.role === "admin") {
+      return next();
+    }
+    const perms = user.permissions as string[] | null;
+    if (perms && perms.includes(permission)) {
+      return next();
+    }
+    return res.status(403).json({ message: "Permissão insuficiente" });
+  };
 }

@@ -18,7 +18,7 @@ import type { Order, Client, Product } from "@shared/schema";
 import {
   Plus, Search, AlertTriangle, List, Columns3, Calendar,
   ChevronRight, DollarSign, Clock, Phone, GripVertical, ClipboardList,
-  UserPlus, Trash2, Minus, ShoppingBag
+  UserPlus, Trash2, Minus, ShoppingBag, FileText
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -48,11 +48,18 @@ type OrderItemDraft = {
   variation?: string;
 };
 
+function isOrderLate(order: Order): boolean {
+  if (order.status === "finished") return false;
+  if (!order.deliveryDate) return false;
+  return new Date(order.deliveryDate) < new Date();
+}
+
 export default function OrdersPage() {
   const { toast } = useToast();
   const [view, setView] = useState<"list" | "kanban">("list");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [typeTab, setTypeTab] = useState<"order" | "quotation">("order");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<number | null>(null);
 
@@ -88,12 +95,16 @@ export default function OrdersPage() {
   });
 
   const filteredOrders = orders.filter(o => {
+    const matchesType = (o.type || "order") === typeTab;
     const matchesSearch = search === "" ||
       o.code.toLowerCase().includes(search.toLowerCase()) ||
       clients.find(c => c.id === o.clientId)?.name.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === "all" || o.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    return matchesType && matchesSearch && matchesStatus;
   });
+
+  const orderCount = orders.filter(o => (o.type || "order") === "order").length;
+  const quotationCount = orders.filter(o => o.type === "quotation").length;
 
   const getClientName = (clientId: number) =>
     clients.find(c => c.id === clientId)?.name || "—";
@@ -103,10 +114,11 @@ export default function OrdersPage() {
 
   const sendWhatsApp = (order: Order) => {
     const client = clients.find(c => c.id === order.clientId);
-    if (!client) return;
+    if (!client || !client.phone) return;
     const phone = client.phone.replace(/\D/g, "");
+    const typeLabel = order.type === "quotation" ? "orçamento" : "pedido";
     const msg = encodeURIComponent(
-      `Olá ${client.name}!\n\nSeu pedido *${order.code}*\nStatus: ${ORDER_STATUS_LABELS[order.status]}\nData de Entrada: ${format(new Date(order.createdAt), "dd/MM/yyyy HH:mm")}\n\nObrigado pela preferência!`
+      `Olá ${client.name}!\n\nSeu ${typeLabel} *${order.code}*\nStatus: ${ORDER_STATUS_LABELS[order.status]}\nData de Entrada: ${format(new Date(order.createdAt), "dd/MM/yyyy HH:mm")}\n\nObrigado pela preferência!`
     );
     window.open(`https://wa.me/55${phone}?text=${msg}`, "_blank");
   };
@@ -123,20 +135,39 @@ export default function OrdersPage() {
     );
   }
 
+  const isQuotation = typeTab === "quotation";
+  const typeLabel = isQuotation ? "Orçamento" : "Pedido";
+  const typeLabelPlural = isQuotation ? "Orçamentos" : "Pedidos";
+
   return (
     <div className="p-6 space-y-6" data-testid="orders-page">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold">Pedidos</h1>
+          <h1 className="text-2xl font-semibold">{typeLabelPlural}</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {orders.length} pedido{orders.length !== 1 ? "s" : ""} no total
+            {filteredOrders.length} {typeLabelPlural.toLowerCase()} encontrado{filteredOrders.length !== 1 ? "s" : ""}
           </p>
         </div>
         <Button data-testid="button-new-order" onClick={() => setCreateOpen(true)}>
           <Plus className="w-4 h-4 mr-2" />
-          Novo Pedido
+          Novo {typeLabel}
         </Button>
       </div>
+
+      <Tabs value={typeTab} onValueChange={(v) => setTypeTab(v as any)}>
+        <TabsList data-testid="tabs-order-type">
+          <TabsTrigger value="order" data-testid="tab-orders">
+            <ClipboardList className="w-4 h-4 mr-1" />
+            Pedidos
+            <Badge variant="secondary" className="ml-1.5 text-xs">{orderCount}</Badge>
+          </TabsTrigger>
+          <TabsTrigger value="quotation" data-testid="tab-quotations">
+            <FileText className="w-4 h-4 mr-1" />
+            Orçamentos
+            <Badge variant="secondary" className="ml-1.5 text-xs">{quotationCount}</Badge>
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
@@ -205,12 +236,13 @@ export default function OrdersPage() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         clients={clients}
+        defaultType={typeTab}
       />
     </div>
   );
 }
 
-function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onOpenChange: (v: boolean) => void; clients: Client[] }) {
+function CreateOrderDialog({ open, onOpenChange, clients, defaultType }: { open: boolean; onOpenChange: (v: boolean) => void; clients: Client[]; defaultType: string }) {
   const { toast } = useToast();
   const [clientMode, setClientMode] = useState<"existing" | "new">("existing");
   const [selectedClientId, setSelectedClientId] = useState("");
@@ -219,6 +251,7 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
   const [totalValue, setTotalValue] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
   const [urgent, setUrgent] = useState(false);
+  const [orderType, setOrderType] = useState(defaultType);
   const [orderItems, setOrderItems] = useState<OrderItemDraft[]>([]);
   const [showProductPicker, setShowProductPicker] = useState(false);
 
@@ -250,7 +283,8 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       onOpenChange(false);
       resetForm();
-      toast({ title: "Pedido criado com sucesso" });
+      const label = orderType === "quotation" ? "Orçamento" : "Pedido";
+      toast({ title: `${label} criado com sucesso` });
     },
     onError: (err: any) => {
       toast({ title: "Erro", description: err.message, variant: "destructive" });
@@ -267,25 +301,10 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
     setUrgent(false);
     setOrderItems([]);
     setCustomTotal("");
+    setOrderType(defaultType);
   };
 
-  const getProductFamily = (product: Product) => {
-    return product.parentId || product.id;
-  };
-
-  const getFamilyTotalQty = (items: OrderItemDraft[], currentProductId: number, extraQty = 0) => {
-    const product = products.find(p => p.id === currentProductId);
-    if (!product) return extraQty;
-    const familyId = getProductFamily(product);
-    let total = extraQty;
-    for (const item of items) {
-      const itemProduct = products.find(p => p.id === item.productId);
-      if (itemProduct && getProductFamily(itemProduct) === familyId) {
-        total += item.quantity;
-      }
-    }
-    return total;
-  };
+  const getProductFamily = (product: Product) => product.parentId || product.id;
 
   const recalcPrices = (items: OrderItemDraft[]) => {
     return items.map(item => {
@@ -331,10 +350,7 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
   };
 
   const removeItem = (productId: number) => {
-    setOrderItems(prev => {
-      const updated = prev.filter(i => i.productId !== productId);
-      return recalcPrices(updated);
-    });
+    setOrderItems(prev => recalcPrices(prev.filter(i => i.productId !== productId)));
   };
 
   const handleSubmit = async () => {
@@ -342,15 +358,15 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
       let clientId: number;
 
       if (clientMode === "new") {
-        if (!newClient.name || !newClient.phone) {
-          toast({ title: "Preencha nome e telefone do cliente", variant: "destructive" });
+        if (!newClient.name) {
+          toast({ title: "Preencha o nome do cliente", variant: "destructive" });
           return;
         }
         const created = await createClientMutation.mutateAsync({
           name: newClient.name,
-          phone: newClient.phone,
+          phone: newClient.phone || undefined,
           email: newClient.email || undefined,
-        });
+        } as any);
         clientId = created.id;
       } else {
         if (!selectedClientId) {
@@ -366,6 +382,7 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
         urgent,
         totalValue: effectiveTotal || "0",
         deliveryDate: deliveryDate || null,
+        type: orderType,
         items: orderItems.length > 0 ? orderItems.map(i => ({
           productId: i.productId,
           quantity: i.quantity,
@@ -379,14 +396,29 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
   };
 
   const isPending = createClientMutation.isPending || createOrderMutation.isPending;
+  const isQuotation = orderType === "quotation";
+  const typeLabel = isQuotation ? "Orçamento" : "Pedido";
 
   return (
     <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) resetForm(); }}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Criar Novo Pedido</DialogTitle>
+          <DialogTitle>Criar Novo {typeLabel}</DialogTitle>
         </DialogHeader>
         <div className="space-y-5">
+          <div className="space-y-2">
+            <Label>Tipo</Label>
+            <Select value={orderType} onValueChange={setOrderType}>
+              <SelectTrigger data-testid="select-order-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="order">Pedido</SelectItem>
+                <SelectItem value="quotation">Orçamento</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <Label className="text-sm font-semibold">Cliente</Label>
@@ -413,7 +445,7 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
                 <SelectContent>
                   {clients.map(c => (
                     <SelectItem key={c.id} value={String(c.id)}>
-                      {c.name} — {c.phone}
+                      {c.name}{c.phone ? ` — ${c.phone}` : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -430,7 +462,7 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
                   />
                 </div>
                 <div>
-                  <Label className="text-xs">Telefone *</Label>
+                  <Label className="text-xs">Telefone</Label>
                   <Input
                     data-testid="input-new-client-phone"
                     value={newClient.phone}
@@ -592,7 +624,7 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
               id="urgent"
               data-testid="switch-urgent"
             />
-            <Label htmlFor="urgent">Pedido Urgente</Label>
+            <Label htmlFor="urgent">{typeLabel} Urgente</Label>
           </div>
 
           <Button
@@ -601,7 +633,7 @@ function CreateOrderDialog({ open, onOpenChange, clients }: { open: boolean; onO
             data-testid="button-create-order"
             onClick={handleSubmit}
           >
-            {isPending ? "Criando..." : "Criar Pedido"}
+            {isPending ? "Criando..." : `Criar ${typeLabel}`}
           </Button>
         </div>
 
@@ -721,98 +753,107 @@ function ListView({
 
   return (
     <div className="space-y-2" data-testid="orders-list-view">
-      {orders.map(order => (
-        <Card
-          key={order.id}
-          className={`cursor-pointer transition-all hover-elevate ${order.urgent ? "ring-2 ring-amber-400 dark:ring-amber-600" : ""}`}
-          onClick={() => onSelect(order.id)}
-          data-testid={`card-order-${order.id}`}
-        >
-          <CardContent className="py-4 px-5">
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              <div className="flex items-center gap-4 min-w-0">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono text-sm font-semibold" data-testid={`text-order-code-${order.id}`}>
-                      {order.code}
-                    </span>
-                    {order.urgent && (
-                      <Badge variant="destructive" className="text-xs">
-                        <AlertTriangle className="w-3 h-3 mr-1" />
-                        Urgente
-                      </Badge>
-                    )}
-                    {order.source === "online" && (
-                      <Badge variant="secondary" className="text-xs">
-                        <ShoppingBag className="w-3 h-3 mr-1" />
-                        Online
-                      </Badge>
-                    )}
+      {orders.map(order => {
+        const late = isOrderLate(order);
+        return (
+          <Card
+            key={order.id}
+            className={`cursor-pointer transition-all hover-elevate ${order.urgent ? "ring-2 ring-amber-400 dark:ring-amber-600" : ""} ${late ? "ring-2 ring-red-400 dark:ring-red-600" : ""}`}
+            onClick={() => onSelect(order.id)}
+            data-testid={`card-order-${order.id}`}
+          >
+            <CardContent className="py-4 px-5">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-sm font-semibold" data-testid={`text-order-code-${order.id}`}>
+                        {order.code}
+                      </span>
+                      {order.urgent && (
+                        <Badge variant="destructive" className="text-xs">
+                          <AlertTriangle className="w-3 h-3 mr-1" />
+                          Urgente
+                        </Badge>
+                      )}
+                      {late && (
+                        <Badge className="text-xs bg-red-600 text-white" data-testid={`badge-late-${order.id}`}>
+                          <Clock className="w-3 h-3 mr-1" />
+                          Atrasado
+                        </Badge>
+                      )}
+                      {order.source === "online" && (
+                        <Badge variant="secondary" className="text-xs">
+                          <ShoppingBag className="w-3 h-3 mr-1" />
+                          Online
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      {getClientName(order.clientId)}
+                    </p>
                   </div>
-                  <p className="text-sm text-muted-foreground mt-0.5">
-                    {getClientName(order.clientId)}
-                  </p>
                 </div>
-              </div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <div className="text-right text-sm">
-                  <p className="text-muted-foreground">
-                    <Clock className="w-3 h-3 inline mr-1" />
-                    {format(new Date(order.createdAt), "dd/MM/yyyy HH:mm")}
-                  </p>
-                  <p className="font-medium mt-0.5">
-                    R$ {parseFloat(order.totalValue || "0").toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                  </p>
-                </div>
-                <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${statusColors[order.status] || ""}`}>
-                  {ORDER_STATUS_LABELS[order.status]}
-                </span>
-                <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${financialColors[order.financialStatus] || ""}`}>
-                  {FINANCIAL_STATUS_LABELS[order.financialStatus]}
-                </span>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={(e) => { e.stopPropagation(); sendWhatsApp(order); }}
-                  data-testid={`button-whatsapp-${order.id}`}
-                >
-                  <Phone className="w-4 h-4 text-emerald-600" />
-                </Button>
-                {confirmDeleteId === order.id ? (
-                  <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => { onDelete(order.id); setConfirmDeleteId(null); }}
-                      data-testid={`button-confirm-delete-${order.id}`}
-                    >
-                      Confirmar
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setConfirmDeleteId(null)}
-                      data-testid={`button-cancel-delete-${order.id}`}
-                    >
-                      Cancelar
-                    </Button>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="text-right text-sm">
+                    <p className="text-muted-foreground">
+                      <Clock className="w-3 h-3 inline mr-1" />
+                      {format(new Date(order.createdAt), "dd/MM/yyyy HH:mm")}
+                    </p>
+                    <p className="font-medium mt-0.5">
+                      R$ {parseFloat(order.totalValue || "0").toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    </p>
                   </div>
-                ) : (
+                  <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${statusColors[order.status] || ""}`}>
+                    {ORDER_STATUS_LABELS[order.status]}
+                  </span>
+                  <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${financialColors[order.financialStatus] || ""}`}>
+                    {FINANCIAL_STATUS_LABELS[order.financialStatus]}
+                  </span>
                   <Button
                     size="icon"
                     variant="ghost"
-                    onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(order.id); }}
-                    data-testid={`button-delete-${order.id}`}
+                    onClick={(e) => { e.stopPropagation(); sendWhatsApp(order); }}
+                    data-testid={`button-whatsapp-${order.id}`}
                   >
-                    <Trash2 className="w-4 h-4 text-red-500" />
+                    <Phone className="w-4 h-4 text-emerald-600" />
                   </Button>
-                )}
-                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                  {confirmDeleteId === order.id ? (
+                    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => { onDelete(order.id); setConfirmDeleteId(null); }}
+                        data-testid={`button-confirm-delete-${order.id}`}
+                      >
+                        Confirmar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setConfirmDeleteId(null)}
+                        data-testid={`button-cancel-delete-${order.id}`}
+                      >
+                        Cancelar
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(order.id); }}
+                      data-testid={`button-delete-${order.id}`}
+                    >
+                      <Trash2 className="w-4 h-4 text-red-500" />
+                    </Button>
+                  )}
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }
@@ -856,34 +897,40 @@ function KanbanView({
               <Badge variant="secondary">{statusOrders.length}</Badge>
             </div>
             <div className="space-y-2 min-h-[200px] bg-muted/30 rounded-md p-2">
-              {statusOrders.map(order => (
-                <Card
-                  key={order.id}
-                  draggable
-                  onDragStart={e => e.dataTransfer.setData("orderId", String(order.id))}
-                  onClick={() => onSelect(order.id)}
-                  className={`cursor-grab active:cursor-grabbing hover-elevate ${order.urgent ? "ring-2 ring-amber-400 dark:ring-amber-600" : ""}`}
-                  data-testid={`kanban-card-${order.id}`}
-                >
-                  <CardContent className="p-3">
-                    <div className="flex items-start justify-between gap-1 mb-2">
-                      <span className="font-mono text-xs font-semibold">{order.code}</span>
-                      {order.urgent && <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />}
-                    </div>
-                    <p className="text-sm font-medium truncate">{getClientName(order.clientId)}</p>
-                    <p className="text-xs text-muted-foreground mt-1 truncate">{order.description}</p>
-                    <div className="flex items-center justify-between gap-1 mt-2 pt-2 border-t">
-                      <span className="text-xs text-muted-foreground">
-                        {format(new Date(order.createdAt), "dd/MM")}
-                      </span>
-                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${financialColors[order.financialStatus]}`}>
-                        <DollarSign className="w-2.5 h-2.5 mr-0.5" />
-                        {FINANCIAL_STATUS_LABELS[order.financialStatus]}
-                      </span>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+              {statusOrders.map(order => {
+                const late = isOrderLate(order);
+                return (
+                  <Card
+                    key={order.id}
+                    draggable
+                    onDragStart={e => e.dataTransfer.setData("orderId", String(order.id))}
+                    onClick={() => onSelect(order.id)}
+                    className={`cursor-grab active:cursor-grabbing hover-elevate ${order.urgent ? "ring-2 ring-amber-400 dark:ring-amber-600" : ""} ${late ? "ring-2 ring-red-400 dark:ring-red-600" : ""}`}
+                    data-testid={`kanban-card-${order.id}`}
+                  >
+                    <CardContent className="p-3">
+                      <div className="flex items-start justify-between gap-1 mb-2">
+                        <span className="font-mono text-xs font-semibold">{order.code}</span>
+                        <div className="flex items-center gap-1">
+                          {late && <Clock className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />}
+                          {order.urgent && <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />}
+                        </div>
+                      </div>
+                      <p className="text-sm font-medium truncate">{getClientName(order.clientId)}</p>
+                      <p className="text-xs text-muted-foreground mt-1 truncate">{order.description}</p>
+                      <div className="flex items-center justify-between gap-1 mt-2 pt-2 border-t">
+                        <span className="text-xs text-muted-foreground">
+                          {format(new Date(order.createdAt), "dd/MM")}
+                        </span>
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${financialColors[order.financialStatus]}`}>
+                          <DollarSign className="w-2.5 h-2.5 mr-0.5" />
+                          {FINANCIAL_STATUS_LABELS[order.financialStatus]}
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           </div>
         );

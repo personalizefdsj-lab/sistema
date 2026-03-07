@@ -5,21 +5,33 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db } from "./db";
 import { storage } from "./storage";
-import { setupAuth, requireAuth, requireSuperAdmin, hashPassword } from "./auth";
-import { registerCompanySchema, ORDER_STATUSES, orders } from "@shared/schema";
+import { setupAuth, requireAuth, requireSuperAdmin, requirePermission, hashPassword } from "./auth";
+import { registerCompanySchema, ORDER_STATUSES, orders, ALL_PERMISSIONS } from "@shared/schema";
 
 const createClientSchema = z.object({
   name: z.string().min(1),
-  phone: z.string().min(1),
+  phone: z.string().nullable().optional(),
   email: z.string().email().nullable().optional(),
   address: z.string().nullable().optional(),
+  personType: z.enum(["fisica", "juridica"]).nullable().optional(),
+  document: z.string().nullable().optional(),
+  neighborhood: z.string().nullable().optional(),
+  streetNumber: z.string().nullable().optional(),
+  city: z.string().nullable().optional(),
+  state: z.string().nullable().optional(),
 });
 
 const updateClientSchema = z.object({
   name: z.string().min(1).optional(),
-  phone: z.string().min(1).optional(),
+  phone: z.string().nullable().optional(),
   email: z.string().email().nullable().optional(),
   address: z.string().nullable().optional(),
+  personType: z.enum(["fisica", "juridica"]).nullable().optional(),
+  document: z.string().nullable().optional(),
+  neighborhood: z.string().nullable().optional(),
+  streetNumber: z.string().nullable().optional(),
+  city: z.string().nullable().optional(),
+  state: z.string().nullable().optional(),
 });
 
 const createOrderSchema = z.object({
@@ -28,6 +40,7 @@ const createOrderSchema = z.object({
   urgent: z.boolean().optional().default(false),
   totalValue: z.string().optional().default("0"),
   deliveryDate: z.string().optional().nullable(),
+  type: z.enum(["order", "quotation"]).optional().default("order"),
   items: z.array(z.object({
     productId: z.number().int().positive(),
     quantity: z.number().int().positive(),
@@ -45,6 +58,7 @@ const updateOrderSchema = z.object({
   deliveryDate: z.string().optional().nullable(),
   kanbanOrder: z.number().optional(),
   financialStatus: z.string().optional(),
+  type: z.enum(["order", "quotation"]).optional(),
 });
 
 const sendMessageSchema = z.object({
@@ -171,7 +185,15 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
-  app.get("/api/clients", requireAuth, async (req, res) => {
+  const requireClientsOrPdv = (req: any, res: any, next: any) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const user = req.user!;
+    if (user.role === "superadmin" || user.role === "admin") return next();
+    const perms = user.permissions as string[] | null;
+    if (perms && (perms.includes("clients") || perms.includes("pdv") || perms.includes("orders"))) return next();
+    return res.status(403).json({ message: "Permissão insuficiente" });
+  };
+  app.get("/api/clients", requireAuth, requireClientsOrPdv, async (req, res) => {
     const companyId = req.user!.companyId!;
     const search = req.query.search as string;
     if (search) return res.json(await storage.searchClients(companyId, search));
@@ -186,9 +208,11 @@ export async function registerRoutes(
     try {
       const companyId = req.user!.companyId!;
       const data = createClientSchema.parse(req.body);
-      const existing = await storage.getClientByPhone(data.phone, companyId);
-      if (existing) return res.status(400).json({ message: "Cliente com este telefone já existe" });
-      res.json(await storage.createClient({ ...data, companyId }));
+      if (data.phone) {
+        const existing = await storage.getClientByPhone(data.phone, companyId);
+        if (existing) return res.status(400).json({ message: "Cliente com este telefone já existe" });
+      }
+      res.json(await storage.createClient({ ...data, companyId } as any));
     } catch (err: any) { res.status(400).json({ message: err.message }); }
   });
   app.patch("/api/clients/:id", requireAuth, async (req, res) => {
@@ -200,7 +224,7 @@ export async function registerRoutes(
     } catch (err: any) { res.status(400).json({ message: err.message }); }
   });
 
-  app.get("/api/orders", requireAuth, async (req, res) => { res.json(await storage.getOrders(req.user!.companyId!)); });
+  app.get("/api/orders", requireAuth, requirePermission("orders"), async (req, res) => { res.json(await storage.getOrders(req.user!.companyId!)); });
   app.get("/api/orders/:id", requireAuth, async (req, res) => {
     const order = await storage.getOrder(parseInt(req.params.id), req.user!.companyId!);
     if (!order) return res.status(404).json({ message: "Não encontrado" });
@@ -214,10 +238,11 @@ export async function registerRoutes(
       const companyId = req.user!.companyId!;
       const data = createOrderSchema.parse(req.body);
       const nextNum = await storage.getNextOrderNumber(companyId);
-      const code = `FDJ-${new Date().getFullYear()}-${String(nextNum).padStart(4, "0")}`;
+      const prefix = data.type === "quotation" ? "ORC" : "FDJ";
+      const code = `${prefix}-${new Date().getFullYear()}-${String(nextNum).padStart(4, "0")}`;
       const orderData: any = {
         clientId: data.clientId, companyId, code, status: "received", financialStatus: "pending",
-        receivedValue: "0", kanbanOrder: 0, urgent: data.urgent,
+        receivedValue: "0", kanbanOrder: 0, urgent: data.urgent, type: data.type || "order",
         description: data.description,
         totalValue: data.totalValue,
         deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : null,
@@ -244,6 +269,9 @@ export async function registerRoutes(
 
       if (data.status && data.status !== existing.status) {
         await storage.createOrderHistory({ orderId, companyId, fromStatus: existing.status, toStatus: data.status, changedBy: req.user!.name });
+        if (data.status === "finished") {
+          data.urgent = false;
+        }
         if (data.status === "finished" && existing.status !== "finished" && existing.source !== "online") {
           const items = await storage.getOrderItems(orderId);
           for (const item of items) {
@@ -348,10 +376,19 @@ export async function registerRoutes(
   });
   app.patch("/api/company", requireAuth, async (req, res) => {
     const allowed = z.object({
+      name: z.string().min(1).optional(),
       description: z.string().optional().nullable(),
       primaryColor: z.string().optional(),
+      phone: z.string().optional().nullable(),
       bannerUrl: z.string().optional().nullable(),
+      logoUrl: z.string().optional().nullable(),
       socialLinks: z.any().optional(),
+      cnpj: z.string().optional().nullable(),
+      address: z.string().optional().nullable(),
+      neighborhood: z.string().optional().nullable(),
+      city: z.string().optional().nullable(),
+      state: z.string().optional().nullable(),
+      zipCode: z.string().optional().nullable(),
     }).parse(req.body);
     const updated = await storage.updateCompany(req.user!.companyId!, allowed);
     res.json(updated);
@@ -427,6 +464,153 @@ export async function registerRoutes(
   // Sales dashboard
   app.get("/api/sales/dashboard", requireAuth, async (req, res) => {
     res.json(await storage.getOnlineSalesDashboard(req.user!.companyId!));
+  });
+
+  // Employee management
+  app.get("/api/employees", requireAuth, async (req, res) => {
+    const companyId = req.user!.companyId!;
+    const allUsers = await storage.getUsersByCompany(companyId);
+    res.json(allUsers.map(u => ({ id: u.id, username: u.username, name: u.name, role: u.role, permissions: u.permissions, createdAt: u.createdAt })));
+  });
+  app.post("/api/employees", requireAuth, async (req, res) => {
+    try {
+      if (req.user!.role !== "admin") return res.status(403).json({ message: "Apenas administradores podem criar funcionários" });
+      const data = z.object({
+        name: z.string().min(1),
+        username: z.string().min(3),
+        password: z.string().min(6),
+        permissions: z.array(z.string()).optional().default([]),
+      }).parse(req.body);
+      const existing = await storage.getUserByUsername(data.username);
+      if (existing) return res.status(400).json({ message: "Usuário já existe" });
+      const hashed = await hashPassword(data.password);
+      const user = await storage.createUser({
+        username: data.username, password: hashed, name: data.name,
+        role: "employee", companyId: req.user!.companyId!,
+        permissions: data.permissions,
+      });
+      res.json({ id: user.id, username: user.username, name: user.name, role: user.role, permissions: user.permissions });
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+  app.patch("/api/employees/:id", requireAuth, async (req, res) => {
+    try {
+      if (req.user!.role !== "admin") return res.status(403).json({ message: "Apenas administradores" });
+      const companyId = req.user!.companyId!;
+      const data = z.object({
+        name: z.string().min(1).optional(),
+        permissions: z.array(z.string()).optional(),
+      }).parse(req.body);
+      const updated = await storage.updateUser(parseInt(req.params.id), data as any, companyId);
+      if (!updated) return res.status(404).json({ message: "Não encontrado" });
+      res.json({ id: updated.id, username: updated.username, name: updated.name, role: updated.role, permissions: updated.permissions });
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+  app.patch("/api/employees/:id/reset-password", requireAuth, async (req, res) => {
+    try {
+      if (req.user!.role !== "admin") return res.status(403).json({ message: "Apenas administradores" });
+      const companyId = req.user!.companyId!;
+      const newPassword = Math.random().toString(36).slice(-8);
+      const hashed = await hashPassword(newPassword);
+      const updated = await storage.updateUser(parseInt(req.params.id), { password: hashed } as any, companyId);
+      if (!updated) return res.status(404).json({ message: "Não encontrado" });
+      res.json({ newPassword });
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+  app.delete("/api/employees/:id", requireAuth, async (req, res) => {
+    try {
+      if (req.user!.role !== "admin") return res.status(403).json({ message: "Apenas administradores" });
+      const companyId = req.user!.companyId!;
+      const targetId = parseInt(req.params.id);
+      if (targetId === req.user!.id) return res.status(400).json({ message: "Não pode excluir a si mesmo" });
+      await storage.deleteUser(targetId, companyId);
+      res.json({ success: true });
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+
+  // Change password (self)
+  app.patch("/api/auth/change-password", requireAuth, async (req, res) => {
+    try {
+      const { currentPassword, newPassword } = z.object({
+        currentPassword: z.string().min(1),
+        newPassword: z.string().min(6),
+      }).parse(req.body);
+      const user = await storage.getUser(req.user!.id);
+      if (!user) return res.status(404).json({ message: "Usuário não encontrado" });
+      const { comparePassword: cmp } = await import("./auth");
+      const valid = await cmp(currentPassword, user.password);
+      if (!valid) return res.status(400).json({ message: "Senha atual incorreta" });
+      const hashed = await hashPassword(newPassword);
+      await storage.updateUser(req.user!.id, { password: hashed } as any);
+      res.json({ success: true });
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+
+  // Financial expenses
+  app.get("/api/financial", requireAuth, requirePermission("financial"), async (req, res) => {
+    res.json(await storage.getExpenses(req.user!.companyId!));
+  });
+  app.post("/api/financial", requireAuth, async (req, res) => {
+    try {
+      const data = z.object({
+        type: z.enum(["income", "expense"]),
+        category: z.string().min(1),
+        description: z.string().optional().nullable(),
+        amount: z.string().min(1),
+        date: z.string().optional(),
+      }).parse(req.body);
+      const expense = await storage.createExpense({
+        companyId: req.user!.companyId!,
+        type: data.type,
+        category: data.category,
+        description: data.description || null,
+        amount: data.amount,
+        date: data.date ? new Date(data.date) : new Date(),
+      } as any);
+      res.json(expense);
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+  app.delete("/api/financial/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteExpense(parseInt(req.params.id), req.user!.companyId!);
+      res.json({ success: true });
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+
+  // Convert quotation to order
+  app.post("/api/orders/:id/convert", requireAuth, async (req, res) => {
+    try {
+      const companyId = req.user!.companyId!;
+      const orderId = parseInt(req.params.id);
+      const order = await storage.getOrder(orderId, companyId);
+      if (!order) return res.status(404).json({ message: "Não encontrado" });
+      if (order.type !== "quotation") return res.status(400).json({ message: "Apenas orçamentos podem ser convertidos" });
+      const nextNum = await storage.getNextOrderNumber(companyId);
+      const newCode = `FDJ-${new Date().getFullYear()}-${String(nextNum).padStart(4, "0")}`;
+      const updated = await storage.updateOrder(orderId, companyId, { type: "order", code: newCode } as any);
+      res.json(updated);
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+
+  // Company logo upload
+  const multer = (await import("multer")).default;
+  const path = await import("path");
+  const fs = await import("fs");
+  const uploadDir = path.default.join(process.cwd(), "uploads");
+  if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+  const upload = multer({ dest: uploadDir, limits: { fileSize: 5 * 1024 * 1024 } });
+  app.use("/uploads", (await import("express")).default.static(uploadDir));
+
+  app.post("/api/company/logo", requireAuth, upload.single("logo"), async (req: any, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "Nenhum arquivo enviado" });
+      const ext = path.default.extname(req.file.originalname) || ".png";
+      const newName = `logo_${req.user!.companyId}${ext}`;
+      const newPath = path.default.join(uploadDir, newName);
+      fs.renameSync(req.file.path, newPath);
+      const logoUrl = `/uploads/${newName}`;
+      await storage.updateCompany(req.user!.companyId!, { logoUrl } as any);
+      res.json({ logoUrl });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
   // Public store routes (no auth required)

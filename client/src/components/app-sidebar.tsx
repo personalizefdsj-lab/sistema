@@ -28,6 +28,10 @@ import {
   TrendingUp,
   ExternalLink,
   Lock,
+  Settings,
+  UserCog,
+  DollarSign,
+  Monitor,
 } from "lucide-react";
 
 export function AppSidebar() {
@@ -35,22 +39,38 @@ export function AppSidebar() {
   const [location] = useLocation();
 
   const isSuperAdmin = user?.role === "superadmin";
+  const isAdmin = user?.role === "admin";
   const companySlug = (user as any)?.companySlug;
+  const permissions = (user as any)?.permissions as string[] | null;
+
+  const hasPermission = (perm: string) => {
+    if (isSuperAdmin || isAdmin) return true;
+    return permissions?.includes(perm) ?? false;
+  };
 
   const { data: company } = useQuery<any>({
     queryKey: ["/api/company"],
     enabled: !isSuperAdmin,
   });
 
-  const adminItems = [
-    { title: "Dashboard", url: "/", icon: LayoutDashboard },
-    { title: "Pedidos", url: "/orders", icon: ClipboardList },
-    { title: "Clientes", url: "/clients", icon: Users },
-    { title: "Produtos", url: "/products", icon: ShoppingBag },
-    { title: "Estoque", url: "/stock", icon: Warehouse },
-    { title: "Vendas Online", url: "/sales", icon: TrendingUp },
-    { title: "Conversas", url: "/conversations", icon: MessageSquare },
+  const allAdminItems = [
+    { title: "Dashboard", url: "/", icon: LayoutDashboard, perm: null },
+    { title: "PDV", url: "/pdv", icon: Monitor, perm: "pdv" },
+    { title: "Pedidos", url: "/orders", icon: ClipboardList, perm: "orders" },
+    { title: "Clientes", url: "/clients", icon: Users, perm: "clients" },
+    { title: "Produtos", url: "/products", icon: ShoppingBag, perm: "products" },
+    { title: "Estoque", url: "/stock", icon: Warehouse, perm: "stock" },
+    { title: "Financeiro", url: "/financial", icon: DollarSign, perm: "financial" },
+    { title: "Vendas Online", url: "/sales", icon: TrendingUp, perm: null },
+    { title: "Conversas", url: "/conversations", icon: MessageSquare, perm: "conversations" },
   ];
+
+  const adminItems = allAdminItems.filter(item => item.perm === null || hasPermission(item.perm));
+
+  const managementItems = [
+    ...(isAdmin ? [{ title: "Funcionários", url: "/employees", icon: UserCog }] : []),
+    { title: "Configurações", url: "/settings", icon: Settings },
+  ].filter(item => isAdmin || hasPermission("settings"));
 
   const superAdminItems = [
     { title: "Empresas", url: "/admin", icon: Shield },
@@ -62,11 +82,15 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-md bg-primary flex items-center justify-center flex-shrink-0">
-            <Package className="w-5 h-5 text-primary-foreground" />
-          </div>
+          {company?.logoUrl ? (
+            <img src={company.logoUrl} alt="" className="w-9 h-9 rounded-md object-cover flex-shrink-0" />
+          ) : (
+            <div className="w-9 h-9 rounded-md bg-primary flex items-center justify-center flex-shrink-0">
+              <Package className="w-5 h-5 text-primary-foreground" />
+            </div>
+          )}
           <div className="min-w-0">
-            <p className="text-sm font-semibold truncate">Gestor de Pedidos</p>
+            <p className="text-sm font-semibold truncate">{company?.name || "Gestor de Pedidos"}</p>
             <p className="text-xs text-muted-foreground truncate">{user?.name}</p>
           </div>
         </div>
@@ -89,6 +113,25 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        {!isSuperAdmin && managementItems.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Gestão</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {managementItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild data-active={location === item.url}>
+                      <Link href={item.url}>
+                        <item.icon className="w-4 h-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
         {!isSuperAdmin && companySlug && (
           <SidebarGroup>
             <SidebarGroupLabel>Links Públicos</SidebarGroupLabel>

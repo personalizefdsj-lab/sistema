@@ -1,7 +1,7 @@
 import { eq, and, desc, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
-  companies, users, clients, orders, orderHistory, messages, products, stockMovements, orderItems,
+  companies, users, clients, orders, orderHistory, messages, products, stockMovements, orderItems, expenses,
   type Company, type InsertCompany,
   type User, type InsertUser,
   type Client, type InsertClient,
@@ -11,6 +11,7 @@ import {
   type Product, type InsertProduct,
   type StockMovement, type InsertStockMovement,
   type OrderItem, type InsertOrderItem,
+  type Expense, type InsertExpense,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -71,6 +72,14 @@ export interface IStorage {
   deleteOrderItem(id: number): Promise<void>;
 
   getOnlineSalesDashboard(companyId: number): Promise<any>;
+
+  getUsersByCompany(companyId: number): Promise<User[]>;
+  updateUser(id: number, data: Partial<InsertUser>, companyId?: number): Promise<User | undefined>;
+  deleteUser(id: number, companyId?: number): Promise<void>;
+
+  getExpenses(companyId: number): Promise<Expense[]>;
+  createExpense(expense: InsertExpense): Promise<Expense>;
+  deleteExpense(id: number, companyId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -142,7 +151,7 @@ export class DatabaseStorage implements IStorage {
   async getClientByPhone(phone: string, companyId: number): Promise<Client | undefined> {
     const normalized = phone.replace(/[\s\-\.]/g, "");
     const allClients = await db.select().from(clients).where(eq(clients.companyId, companyId));
-    return allClients.find(c => c.phone.replace(/[\s\-\.]/g, "") === normalized);
+    return allClients.find(c => c.phone && c.phone.replace(/[\s\-\.]/g, "") === normalized);
   }
 
   async createClient(client: InsertClient): Promise<Client> {
@@ -162,7 +171,7 @@ export class DatabaseStorage implements IStorage {
     const all = await this.getClients(companyId);
     return all.filter(c =>
       c.name.toLowerCase().includes(query.toLowerCase()) ||
-      c.phone.replace(/[\s\-\.]/g, "").includes(normalized)
+      (c.phone && c.phone.replace(/[\s\-\.]/g, "").includes(normalized))
     );
   }
 
@@ -497,6 +506,37 @@ export class DatabaseStorage implements IStorage {
       totalOnlineOrders: onlineOrders.length,
       topProducts,
     };
+  }
+  async getUsersByCompany(companyId: number): Promise<User[]> {
+    return db.select().from(users).where(eq(users.companyId, companyId)).orderBy(desc(users.createdAt));
+  }
+
+  async updateUser(id: number, data: Partial<InsertUser>, companyId?: number): Promise<User | undefined> {
+    const conditions = companyId
+      ? and(eq(users.id, id), eq(users.companyId, companyId))
+      : eq(users.id, id);
+    const [updated] = await db.update(users).set(data).where(conditions).returning();
+    return updated;
+  }
+
+  async deleteUser(id: number, companyId?: number): Promise<void> {
+    const conditions = companyId
+      ? and(eq(users.id, id), eq(users.companyId, companyId))
+      : eq(users.id, id);
+    await db.delete(users).where(conditions);
+  }
+
+  async getExpenses(companyId: number): Promise<Expense[]> {
+    return db.select().from(expenses).where(eq(expenses.companyId, companyId)).orderBy(desc(expenses.date));
+  }
+
+  async createExpense(expense: InsertExpense): Promise<Expense> {
+    const [created] = await db.insert(expenses).values(expense).returning();
+    return created;
+  }
+
+  async deleteExpense(id: number, companyId: number): Promise<void> {
+    await db.delete(expenses).where(and(eq(expenses.id, id), eq(expenses.companyId, companyId)));
   }
 }
 

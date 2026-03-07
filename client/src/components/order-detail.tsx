@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,8 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { ORDER_STATUSES, ORDER_STATUS_LABELS, FINANCIAL_STATUS_LABELS } from "@shared/schema";
-import type { Order, Client, OrderHistory, OrderItem, Product } from "@shared/schema";
-import { ArrowLeft, AlertTriangle, Clock, Phone, History, Package, Calendar, Plus, Minus, Trash2, Search } from "lucide-react";
+import type { Order, Client, OrderHistory, OrderItem, Product, Company } from "@shared/schema";
+import { ArrowLeft, AlertTriangle, Clock, Phone, History, Package, Calendar, Plus, Minus, Trash2, Search, Printer, ArrowRightLeft } from "lucide-react";
 import { format } from "date-fns";
 
 const statusColors: Record<string, string> = {
@@ -25,6 +25,12 @@ const statusColors: Record<string, string> = {
   finished: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
   waiting_client: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
 };
+
+function isOrderLate(order: Order): boolean {
+  if (order.status === "finished") return false;
+  if (!order.deliveryDate) return false;
+  return new Date(order.deliveryDate) < new Date();
+}
 
 export default function OrderDetail({
   orderId,
@@ -42,6 +48,7 @@ export default function OrderDetail({
   const { toast } = useToast();
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const printRef = useRef<HTMLDivElement>(null);
 
   const { data: order, isLoading } = useQuery<Order>({
     queryKey: ["/api/orders", orderId],
@@ -59,6 +66,10 @@ export default function OrderDetail({
     queryKey: ["/api/products"],
   });
 
+  const { data: company } = useQuery<Company>({
+    queryKey: ["/api/company"],
+  });
+
   const updateMutation = useMutation({
     mutationFn: async (data: any) => {
       const res = await apiRequest("PATCH", `/api/orders/${orderId}`, data);
@@ -73,6 +84,21 @@ export default function OrderDetail({
     },
     onError: (err: any) => {
       toast({ title: "Erro", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const convertMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/orders/${orderId}/convert`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders", orderId] });
+      toast({ title: "Orçamento convertido em pedido com sucesso!" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Erro ao converter", description: err.message, variant: "destructive" });
     },
   });
 
@@ -119,349 +145,449 @@ export default function OrderDetail({
   const remaining = Math.max(0, parseFloat(order.totalValue || "0") - parseFloat(order.receivedValue || "0"));
   const statusIndex = ORDER_STATUSES.indexOf(order.status as any);
   const itemsTotal = orderItems.reduce((sum, item) => sum + parseFloat(item.unitPrice || "0") * item.quantity, 0);
+  const isQuotation = order.type === "quotation";
+  const typeLabel = isQuotation ? "Orçamento" : "Pedido";
+  const late = isOrderLate(order);
 
   const sendWhatsApp = () => {
-    if (!client) return;
+    if (!client || !client.phone) return;
     const phone = client.phone.replace(/\D/g, "");
     const msg = encodeURIComponent(
-      `Olá ${client.name}!\n\nSeu pedido *${order.code}*\nStatus: ${ORDER_STATUS_LABELS[order.status]}\nData de Entrada: ${format(new Date(order.createdAt), "dd/MM/yyyy HH:mm")}\n\nObrigado pela preferência!`
+      `Olá ${client.name}!\n\nSeu ${typeLabel.toLowerCase()} *${order.code}*\nStatus: ${ORDER_STATUS_LABELS[order.status]}\nData de Entrada: ${format(new Date(order.createdAt), "dd/MM/yyyy HH:mm")}\n\nObrigado pela preferência!`
     );
     window.open(`https://wa.me/55${phone}?text=${msg}`, "_blank");
   };
 
+  const handlePrint = () => {
+    window.print();
+  };
+
   return (
-    <div className="p-6 space-y-6" data-testid="order-detail-page">
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={onBack} data-testid="button-back">
-          <ArrowLeft className="w-4 h-4" />
-        </Button>
-        <div className="flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl font-semibold font-mono" data-testid="text-order-code">{order.code}</h1>
-            {order.urgent && (
-              <Badge variant="destructive">
-                <AlertTriangle className="w-3 h-3 mr-1" />
-                Urgente
-              </Badge>
-            )}
-            {order.source === "online" && (
-              <Badge variant="secondary">Online</Badge>
-            )}
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Entrada: {format(new Date(order.createdAt), "dd/MM/yyyy HH:mm")}
-          </p>
-        </div>
-        {onDelete && (
-          confirmDelete ? (
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="destructive"
-                disabled={isDeleting}
-                onClick={() => onDelete(orderId)}
-                data-testid="button-confirm-delete-order"
-              >
-                {isDeleting ? "Excluindo..." : "Confirmar exclusão"}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setConfirmDelete(false)}
-                data-testid="button-cancel-delete-order"
-              >
-                Cancelar
-              </Button>
-            </div>
-          ) : (
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => setConfirmDelete(true)}
-              data-testid="button-delete-order"
-            >
-              <Trash2 className="w-4 h-4 text-red-500" />
-            </Button>
-          )
-        )}
-      </div>
-
-      <div className="flex gap-2 overflow-x-auto pb-2">
-        {ORDER_STATUSES.map((s, i) => {
-          const isCurrent = order.status === s;
-          const isPast = statusIndex > i;
-          return (
-            <div
-              key={s}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
-                isCurrent
-                  ? statusColors[s]
-                  : isPast
-                    ? "bg-muted text-muted-foreground"
-                    : "bg-muted/40 text-muted-foreground/50"
-              }`}
-            >
-              <div className={`w-2 h-2 rounded-full ${isCurrent ? "bg-current" : isPast ? "bg-muted-foreground/50" : "bg-muted-foreground/20"}`} />
-              {ORDER_STATUS_LABELS[s]}
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Detalhes do Pedido</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label className="text-muted-foreground text-xs">Cliente</Label>
-              <p className="font-medium" data-testid="text-client-name">{client?.name || "—"}</p>
-              {client?.phone && (
-                <p className="text-sm text-muted-foreground">{client.phone}</p>
+    <>
+      <div className="p-6 space-y-6 print-content" data-testid="order-detail-page" ref={printRef}>
+        <div className="flex items-center gap-3 no-print">
+          <Button variant="ghost" size="icon" onClick={onBack} data-testid="button-back">
+            <ArrowLeft className="w-4 h-4" />
+          </Button>
+          <div className="flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl font-semibold font-mono" data-testid="text-order-code">{order.code}</h1>
+              {isQuotation && (
+                <Badge variant="outline" className="text-xs">Orçamento</Badge>
+              )}
+              {order.urgent && (
+                <Badge variant="destructive">
+                  <AlertTriangle className="w-3 h-3 mr-1" />
+                  Urgente
+                </Badge>
+              )}
+              {late && (
+                <Badge className="bg-red-600 text-white text-xs" data-testid="badge-late">
+                  <Clock className="w-3 h-3 mr-1" />
+                  Atrasado
+                </Badge>
+              )}
+              {order.source === "online" && (
+                <Badge variant="secondary">Online</Badge>
               )}
             </div>
-            <div className="space-y-1">
-              <Label className="text-muted-foreground text-xs">Descrição</Label>
-              <Textarea
-                data-testid="input-order-description"
-                defaultValue={order.description || ""}
-                placeholder="Adicionar descrição do pedido..."
-                rows={3}
-                onBlur={e => {
-                  if (e.target.value !== (order.description || "")) {
-                    updateMutation.mutate({ description: e.target.value || null });
-                  }
-                }}
-              />
-            </div>
-            <div>
-              <Label className="text-muted-foreground text-xs">Status</Label>
-              <Select
-                value={order.status}
-                onValueChange={(v) => updateMutation.mutate({ status: v })}
+            <p className="text-sm text-muted-foreground">
+              Entrada: {format(new Date(order.createdAt), "dd/MM/yyyy HH:mm")}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {isQuotation && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => convertMutation.mutate()}
+                disabled={convertMutation.isPending}
+                data-testid="button-convert-quotation"
               >
-                <SelectTrigger data-testid="select-order-status">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {ORDER_STATUSES.map(s => (
-                    <SelectItem key={s} value={s}>{ORDER_STATUS_LABELS[s]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-muted-foreground text-xs flex items-center gap-1">
-                <Calendar className="w-3 h-3" />
-                Previsão de Entrega
-              </Label>
-              <Input
-                data-testid="input-delivery-date"
-                type="date"
-                defaultValue={order.deliveryDate ? format(new Date(order.deliveryDate), "yyyy-MM-dd") : ""}
-                onBlur={e => {
-                  const newVal = e.target.value || null;
-                  const oldVal = order.deliveryDate ? format(new Date(order.deliveryDate), "yyyy-MM-dd") : null;
-                  if (newVal !== oldVal) {
-                    updateMutation.mutate({ deliveryDate: newVal });
-                  }
-                }}
-              />
-            </div>
-            <div className="flex items-center justify-between">
-              <Label className="text-muted-foreground text-xs flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" />
-                Pedido Urgente
-              </Label>
-              <Switch
-                data-testid="switch-urgent"
-                checked={!!order.urgent}
-                onCheckedChange={(v) => updateMutation.mutate({ urgent: v })}
-              />
-            </div>
-            <div className="flex gap-2">
-              <Button onClick={sendWhatsApp} variant="outline" className="flex-1" data-testid="button-whatsapp">
-                <Phone className="w-4 h-4 mr-2 text-emerald-600" />
-                WhatsApp
+                <ArrowRightLeft className="w-4 h-4 mr-1" />
+                {convertMutation.isPending ? "Convertendo..." : "Converter em Pedido"}
               </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={handlePrint} data-testid="button-print">
+              <Printer className="w-4 h-4 mr-1" />
+              Imprimir
+            </Button>
+            {onDelete && (
+              confirmDelete ? (
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={isDeleting}
+                    onClick={() => onDelete(orderId)}
+                    data-testid="button-confirm-delete-order"
+                  >
+                    {isDeleting ? "Excluindo..." : "Confirmar exclusão"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setConfirmDelete(false)}
+                    data-testid="button-cancel-delete-order"
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => setConfirmDelete(true)}
+                  data-testid="button-delete-order"
+                >
+                  <Trash2 className="w-4 h-4 text-red-500" />
+                </Button>
+              )
+            )}
+          </div>
+        </div>
+
+        <div className="print-header hidden">
+          <div className="flex items-start justify-between border-b pb-4 mb-4">
+            <div>
+              {company?.logoUrl && <img src={company.logoUrl} alt="" className="h-12 mb-2" />}
+              <h2 className="text-xl font-bold">{company?.name || "Empresa"}</h2>
+              {company?.cnpj && <p className="text-sm">CNPJ: {company.cnpj}</p>}
+              {company?.address && <p className="text-sm">{company.address}{company.neighborhood ? `, ${company.neighborhood}` : ""}{company.city ? ` - ${company.city}` : ""}{company.state ? `/${company.state}` : ""}</p>}
+              {company?.phone && <p className="text-sm">Tel: {company.phone}</p>}
             </div>
-          </CardContent>
-        </Card>
+            <div className="text-right">
+              <h1 className="text-2xl font-bold">{isQuotation ? "ORÇAMENTO" : "PEDIDO"}</h1>
+              <p className="text-lg font-mono font-semibold">{order.code}</p>
+              <p className="text-sm">Data: {format(new Date(order.createdAt), "dd/MM/yyyy HH:mm")}</p>
+              {order.deliveryDate && <p className="text-sm">Entrega: {format(new Date(order.deliveryDate), "dd/MM/yyyy")}</p>}
+            </div>
+          </div>
+          <div className="mb-4 p-3 bg-gray-50 rounded">
+            <p className="font-semibold">Cliente: {client?.name || "—"}</p>
+            {client?.phone && <p className="text-sm">Tel: {client.phone}</p>}
+            {client?.email && <p className="text-sm">Email: {client.email}</p>}
+            {client?.address && <p className="text-sm">End: {client.address}</p>}
+          </div>
+        </div>
+
+        <div className="flex gap-2 overflow-x-auto pb-2 no-print">
+          {ORDER_STATUSES.map((s, i) => {
+            const isCurrent = order.status === s;
+            const isPast = statusIndex > i;
+            return (
+              <div
+                key={s}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+                  isCurrent
+                    ? statusColors[s]
+                    : isPast
+                      ? "bg-muted text-muted-foreground"
+                      : "bg-muted/40 text-muted-foreground/50"
+                }`}
+              >
+                <div className={`w-2 h-2 rounded-full ${isCurrent ? "bg-current" : isPast ? "bg-muted-foreground/50" : "bg-muted-foreground/20"}`} />
+                {ORDER_STATUS_LABELS[s]}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Detalhes do {typeLabel}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label className="text-muted-foreground text-xs">Cliente</Label>
+                <p className="font-medium" data-testid="text-client-name">{client?.name || "—"}</p>
+                {client?.phone && (
+                  <p className="text-sm text-muted-foreground">{client.phone}</p>
+                )}
+              </div>
+              <div className="space-y-1">
+                <Label className="text-muted-foreground text-xs">Descrição</Label>
+                <Textarea
+                  data-testid="input-order-description"
+                  defaultValue={order.description || ""}
+                  placeholder="Adicionar descrição do pedido..."
+                  rows={3}
+                  onBlur={e => {
+                    if (e.target.value !== (order.description || "")) {
+                      updateMutation.mutate({ description: e.target.value || null });
+                    }
+                  }}
+                />
+              </div>
+              <div className="no-print">
+                <Label className="text-muted-foreground text-xs">Status</Label>
+                <Select
+                  value={order.status}
+                  onValueChange={(v) => updateMutation.mutate({ status: v })}
+                >
+                  <SelectTrigger data-testid="select-order-status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ORDER_STATUSES.map(s => (
+                      <SelectItem key={s} value={s}>{ORDER_STATUS_LABELS[s]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-muted-foreground text-xs flex items-center gap-1">
+                  <Calendar className="w-3 h-3" />
+                  Previsão de Entrega
+                </Label>
+                <Input
+                  data-testid="input-delivery-date"
+                  type="date"
+                  defaultValue={order.deliveryDate ? format(new Date(order.deliveryDate), "yyyy-MM-dd") : ""}
+                  onBlur={e => {
+                    const newVal = e.target.value || null;
+                    const oldVal = order.deliveryDate ? format(new Date(order.deliveryDate), "yyyy-MM-dd") : null;
+                    if (newVal !== oldVal) {
+                      updateMutation.mutate({ deliveryDate: newVal });
+                    }
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between no-print">
+                <Label className="text-muted-foreground text-xs flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" />
+                  {typeLabel} Urgente
+                </Label>
+                <Switch
+                  data-testid="switch-urgent"
+                  checked={!!order.urgent}
+                  onCheckedChange={(v) => updateMutation.mutate({ urgent: v })}
+                />
+              </div>
+              <div className="flex gap-2 no-print">
+                <Button onClick={sendWhatsApp} variant="outline" className="flex-1" data-testid="button-whatsapp">
+                  <Phone className="w-4 h-4 mr-2 text-emerald-600" />
+                  WhatsApp
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Financeiro</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="text-center p-3 rounded-md bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Total</p>
+                  <p className="font-bold text-lg" data-testid="text-order-total">
+                    R$ {parseFloat(order.totalValue || "0").toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                  </p>
+                </div>
+                <div className="text-center p-3 rounded-md bg-emerald-50 dark:bg-emerald-950/20">
+                  <p className="text-xs text-muted-foreground">Recebido</p>
+                  <p className="font-bold text-lg text-emerald-600 dark:text-emerald-400" data-testid="text-order-received">
+                    R$ {parseFloat(order.receivedValue || "0").toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                  </p>
+                </div>
+                <div className="text-center p-3 rounded-md bg-amber-50 dark:bg-amber-950/20">
+                  <p className="text-xs text-muted-foreground">Restante</p>
+                  <p className="font-bold text-lg text-amber-600 dark:text-amber-400" data-testid="text-order-remaining">
+                    R$ {remaining.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-3 no-print">
+                <div className="space-y-2">
+                  <Label>Valor Total (R$)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    defaultValue={order.totalValue || "0"}
+                    onBlur={e => updateMutation.mutate({ totalValue: e.target.value })}
+                    data-testid="input-total-value"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Valor Recebido (R$)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    defaultValue={order.receivedValue || "0"}
+                    onBlur={e => updateMutation.mutate({ receivedValue: e.target.value })}
+                    data-testid="input-received-value"
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Financeiro</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Package className="w-4 h-4" />
+                Produtos do {typeLabel}
+              </CardTitle>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowProductPicker(true)}
+                data-testid="button-add-item"
+                className="no-print"
+              >
+                <Plus className="w-4 h-4 mr-1" /> Adicionar
+              </Button>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
-              <div className="text-center p-3 rounded-md bg-muted/50">
-                <p className="text-xs text-muted-foreground">Total</p>
-                <p className="font-bold text-lg" data-testid="text-order-total">
-                  R$ {parseFloat(order.totalValue || "0").toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                </p>
-              </div>
-              <div className="text-center p-3 rounded-md bg-emerald-50 dark:bg-emerald-950/20">
-                <p className="text-xs text-muted-foreground">Recebido</p>
-                <p className="font-bold text-lg text-emerald-600 dark:text-emerald-400" data-testid="text-order-received">
-                  R$ {parseFloat(order.receivedValue || "0").toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                </p>
-              </div>
-              <div className="text-center p-3 rounded-md bg-amber-50 dark:bg-amber-950/20">
-                <p className="text-xs text-muted-foreground">Restante</p>
-                <p className="font-bold text-lg text-amber-600 dark:text-amber-400" data-testid="text-order-remaining">
-                  R$ {remaining.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                </p>
-              </div>
-            </div>
-            <div className="space-y-3">
+          <CardContent>
+            {orderItems.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">Nenhum produto adicionado a este {typeLabel.toLowerCase()}.</p>
+            ) : (
               <div className="space-y-2">
-                <Label>Valor Total (R$)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  defaultValue={order.totalValue || "0"}
-                  onBlur={e => updateMutation.mutate({ totalValue: e.target.value })}
-                  data-testid="input-total-value"
-                />
+                <div className="print-table hidden">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2 text-sm">Produto</th>
+                        <th className="text-center py-2 text-sm">Qtd</th>
+                        <th className="text-right py-2 text-sm">Unit.</th>
+                        <th className="text-right py-2 text-sm">Subtotal</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orderItems.map((item, idx) => {
+                        const product = products.find(p => p.id === item.productId);
+                        return (
+                          <tr key={item.id || idx} className="border-b">
+                            <td className="py-2 text-sm">{product?.name || `Produto #${item.productId}`}{item.variation ? ` (${item.variation})` : ""}</td>
+                            <td className="py-2 text-sm text-center">{item.quantity}</td>
+                            <td className="py-2 text-sm text-right">R$ {parseFloat(item.unitPrice || "0").toFixed(2)}</td>
+                            <td className="py-2 text-sm text-right font-medium">R$ {(parseFloat(item.unitPrice || "0") * item.quantity).toFixed(2)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <td colSpan={3} className="py-2 text-sm font-bold text-right">Total:</td>
+                        <td className="py-2 text-sm font-bold text-right">R$ {parseFloat(order.totalValue || "0").toFixed(2)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+                <div className="print-hide-items">
+                  {orderItems.map((item, idx) => {
+                    const product = products.find(p => p.id === item.productId);
+                    return (
+                      <div key={item.id || idx} className="flex items-center gap-2 p-3 rounded-md bg-muted/30 border" data-testid={`order-item-detail-${item.id}`}>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate" data-testid={`text-item-name-${item.id}`}>
+                            {product?.name || `Produto #${item.productId}`}
+                            {item.variation && <span className="text-muted-foreground ml-1">({item.variation})</span>}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            R$ {parseFloat(item.unitPrice || "0").toFixed(2)} cada
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button type="button" size="icon" variant="outline" className="h-7 w-7"
+                            data-testid={`button-item-minus-${item.id}`}
+                            disabled={item.quantity <= 1 || updateItemMutation.isPending}
+                            onClick={() => updateItemMutation.mutate({ itemId: item.id, quantity: item.quantity - 1 })}>
+                            <Minus className="w-3 h-3" />
+                          </Button>
+                          <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
+                          <Button type="button" size="icon" variant="outline" className="h-7 w-7"
+                            data-testid={`button-item-plus-${item.id}`}
+                            disabled={updateItemMutation.isPending}
+                            onClick={() => updateItemMutation.mutate({ itemId: item.id, quantity: item.quantity + 1 })}>
+                            <Plus className="w-3 h-3" />
+                          </Button>
+                          <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive"
+                            data-testid={`button-item-remove-${item.id}`}
+                            disabled={deleteItemMutation.isPending}
+                            onClick={() => deleteItemMutation.mutate(item.id)}>
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                        <p className="text-sm font-semibold w-20 text-right" data-testid={`text-item-subtotal-${item.id}`}>
+                          R$ {(parseFloat(item.unitPrice || "0") * item.quantity).toFixed(2)}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center justify-between pt-3 border-t mt-3 no-print">
+                  <span className="text-sm font-semibold">Total dos Itens</span>
+                  <span className="text-sm font-bold" data-testid="text-items-total">R$ {itemsTotal.toFixed(2)}</span>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>Valor Recebido (R$)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  defaultValue={order.receivedValue || "0"}
-                  onBlur={e => updateMutation.mutate({ receivedValue: e.target.value })}
-                  data-testid="input-received-value"
-                />
+            )}
+          </CardContent>
+        </Card>
+
+        {order.description && (
+          <div className="print-description hidden">
+            <p className="text-sm"><strong>Observações:</strong> {order.description}</p>
+          </div>
+        )}
+
+        {showProductPicker && (
+          <OrderProductPicker
+            products={products.filter(p => p.active !== false)}
+            alreadyAdded={orderItems.map(i => i.productId)}
+            onSelect={(product) => {
+              addItemMutation.mutate({ productId: product.id, quantity: 1, unitPrice: product.price });
+              setShowProductPicker(false);
+            }}
+            onClose={() => setShowProductPicker(false)}
+          />
+        )}
+
+        <Card className="no-print">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <History className="w-4 h-4" />
+              Histórico
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {history.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem histórico</p>
+            ) : (
+              <div className="space-y-3">
+                {history.map(h => (
+                  <div key={h.id} className="flex items-start gap-3" data-testid={`history-item-${h.id}`}>
+                    <div className="w-2 h-2 rounded-full bg-primary mt-2 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm">
+                        {h.fromStatus ? (
+                          <>
+                            <span className="text-muted-foreground">{ORDER_STATUS_LABELS[h.fromStatus]}</span>
+                            {" → "}
+                            <span className="font-medium">{ORDER_STATUS_LABELS[h.toStatus]}</span>
+                          </>
+                        ) : (
+                          <span className="font-medium">{ORDER_STATUS_LABELS[h.toStatus]}</span>
+                        )}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {h.changedBy} - {format(new Date(h.createdAt), "dd/MM/yyyy HH:mm")}
+                      </p>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
+            )}
           </CardContent>
         </Card>
       </div>
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Package className="w-4 h-4" />
-              Produtos do Pedido
-            </CardTitle>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setShowProductPicker(true)}
-              data-testid="button-add-item"
-            >
-              <Plus className="w-4 h-4 mr-1" /> Adicionar
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {orderItems.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">Nenhum produto adicionado a este pedido.</p>
-          ) : (
-            <div className="space-y-2">
-              {orderItems.map((item, idx) => {
-                const product = products.find(p => p.id === item.productId);
-                return (
-                  <div key={item.id || idx} className="flex items-center gap-2 p-3 rounded-md bg-muted/30 border" data-testid={`order-item-detail-${item.id}`}>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate" data-testid={`text-item-name-${item.id}`}>
-                        {product?.name || `Produto #${item.productId}`}
-                        {item.variation && <span className="text-muted-foreground ml-1">({item.variation})</span>}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        R$ {parseFloat(item.unitPrice || "0").toFixed(2)} cada
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button type="button" size="icon" variant="outline" className="h-7 w-7"
-                        data-testid={`button-item-minus-${item.id}`}
-                        disabled={item.quantity <= 1 || updateItemMutation.isPending}
-                        onClick={() => updateItemMutation.mutate({ itemId: item.id, quantity: item.quantity - 1 })}>
-                        <Minus className="w-3 h-3" />
-                      </Button>
-                      <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
-                      <Button type="button" size="icon" variant="outline" className="h-7 w-7"
-                        data-testid={`button-item-plus-${item.id}`}
-                        disabled={updateItemMutation.isPending}
-                        onClick={() => updateItemMutation.mutate({ itemId: item.id, quantity: item.quantity + 1 })}>
-                        <Plus className="w-3 h-3" />
-                      </Button>
-                      <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive"
-                        data-testid={`button-item-remove-${item.id}`}
-                        disabled={deleteItemMutation.isPending}
-                        onClick={() => deleteItemMutation.mutate(item.id)}>
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
-                    </div>
-                    <p className="text-sm font-semibold w-20 text-right" data-testid={`text-item-subtotal-${item.id}`}>
-                      R$ {(parseFloat(item.unitPrice || "0") * item.quantity).toFixed(2)}
-                    </p>
-                  </div>
-                );
-              })}
-              <div className="flex items-center justify-between pt-3 border-t mt-3">
-                <span className="text-sm font-semibold">Total dos Itens</span>
-                <span className="text-sm font-bold" data-testid="text-items-total">R$ {itemsTotal.toFixed(2)}</span>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {showProductPicker && (
-        <OrderProductPicker
-          products={products.filter(p => p.active !== false)}
-          alreadyAdded={orderItems.map(i => i.productId)}
-          onSelect={(product) => {
-            addItemMutation.mutate({ productId: product.id, quantity: 1, unitPrice: product.price });
-            setShowProductPicker(false);
-          }}
-          onClose={() => setShowProductPicker(false)}
-        />
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <History className="w-4 h-4" />
-            Histórico
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {history.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Sem histórico</p>
-          ) : (
-            <div className="space-y-3">
-              {history.map(h => (
-                <div key={h.id} className="flex items-start gap-3" data-testid={`history-item-${h.id}`}>
-                  <div className="w-2 h-2 rounded-full bg-primary mt-2 flex-shrink-0" />
-                  <div>
-                    <p className="text-sm">
-                      {h.fromStatus ? (
-                        <>
-                          <span className="text-muted-foreground">{ORDER_STATUS_LABELS[h.fromStatus]}</span>
-                          {" → "}
-                          <span className="font-medium">{ORDER_STATUS_LABELS[h.toStatus]}</span>
-                        </>
-                      ) : (
-                        <span className="font-medium">{ORDER_STATUS_LABELS[h.toStatus]}</span>
-                      )}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {h.changedBy} - {format(new Date(h.createdAt), "dd/MM/yyyy HH:mm")}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+    </>
   );
 }
 

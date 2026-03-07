@@ -13,6 +13,12 @@ export const companies = pgTable("companies", {
   primaryColor: text("primary_color").default("#3B82F6"),
   description: text("description"),
   socialLinks: jsonb("social_links"),
+  cnpj: text("cnpj"),
+  address: text("address"),
+  neighborhood: text("neighborhood"),
+  city: text("city"),
+  state: text("state"),
+  zipCode: text("zip_code"),
   status: text("status").notNull().default("active"),
   plan: text("plan").notNull().default("basic"),
   subscriptionExpiry: timestamp("subscription_expiry"),
@@ -26,6 +32,7 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   role: text("role").notNull().default("admin"),
   companyId: integer("company_id").references(() => companies.id),
+  permissions: jsonb("permissions").$type<string[]>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -33,9 +40,15 @@ export const clients = pgTable("clients", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").notNull().references(() => companies.id),
   name: text("name").notNull(),
-  phone: text("phone").notNull(),
+  phone: text("phone"),
   email: text("email"),
   address: text("address"),
+  personType: text("person_type"),
+  document: text("document"),
+  neighborhood: text("neighborhood"),
+  streetNumber: text("street_number"),
+  city: text("city"),
+  state: text("state"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -44,6 +57,7 @@ export const orders = pgTable("orders", {
   companyId: integer("company_id").notNull().references(() => companies.id),
   clientId: integer("client_id").notNull().references(() => clients.id),
   code: text("code").notNull(),
+  type: text("type").notNull().default("order"),
   status: text("status").notNull().default("received"),
   urgent: boolean("urgent").default(false),
   description: text("description"),
@@ -118,6 +132,17 @@ export const orderItems = pgTable("order_items", {
   variation: text("variation"),
 });
 
+export const expenses = pgTable("expenses", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  type: text("type").notNull().default("expense"),
+  category: text("category").notNull().default("outros"),
+  description: text("description"),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull().default("0"),
+  date: timestamp("date").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const insertCompanySchema = createInsertSchema(companies).omit({ id: true, createdAt: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertClientSchema = createInsertSchema(clients).omit({ id: true, createdAt: true });
@@ -127,6 +152,7 @@ export const insertMessageSchema = createInsertSchema(messages).omit({ id: true,
 export const insertProductSchema = createInsertSchema(products).omit({ id: true, createdAt: true, sku: true });
 export const insertStockMovementSchema = createInsertSchema(stockMovements).omit({ id: true, createdAt: true });
 export const insertOrderItemSchema = createInsertSchema(orderItems).omit({ id: true });
+export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, createdAt: true });
 
 export type Company = typeof companies.$inferSelect;
 export type InsertCompany = z.infer<typeof insertCompanySchema>;
@@ -146,6 +172,8 @@ export type StockMovement = typeof stockMovements.$inferSelect;
 export type InsertStockMovement = z.infer<typeof insertStockMovementSchema>;
 export type OrderItem = typeof orderItems.$inferSelect;
 export type InsertOrderItem = z.infer<typeof insertOrderItemSchema>;
+export type Expense = typeof expenses.$inferSelect;
+export type InsertExpense = z.infer<typeof insertExpenseSchema>;
 
 export const ORDER_STATUSES = [
   "received",
@@ -178,6 +206,42 @@ export const STOCK_MOVEMENT_TYPES: Record<string, string> = {
   manual_out: "Saída Manual",
   sale: "Saída por Venda",
   adjustment: "Ajuste de Inventário",
+};
+
+export const EXPENSE_CATEGORIES: Record<string, string> = {
+  luz: "Energia Elétrica",
+  internet: "Internet",
+  agua: "Água",
+  aluguel: "Aluguel",
+  material: "Material",
+  salario: "Salário",
+  impostos: "Impostos",
+  manutencao: "Manutenção",
+  transporte: "Transporte",
+  marketing: "Marketing",
+  outros: "Outros",
+};
+
+export const ALL_PERMISSIONS = [
+  "orders",
+  "clients",
+  "products",
+  "stock",
+  "financial",
+  "conversations",
+  "settings",
+  "pdv",
+] as const;
+
+export const PERMISSION_LABELS: Record<string, string> = {
+  orders: "Pedidos",
+  clients: "Clientes",
+  products: "Produtos",
+  stock: "Estoque",
+  financial: "Financeiro",
+  conversations: "Conversas",
+  settings: "Configurações",
+  pdv: "PDV",
 };
 
 export const loginSchema = z.object({

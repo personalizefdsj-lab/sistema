@@ -7,6 +7,14 @@ import { seedDatabase } from "./seed";
 const app = express();
 const httpServer = createServer(app);
 
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception:", err);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled Rejection:", reason);
+});
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
