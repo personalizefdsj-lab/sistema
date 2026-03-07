@@ -6,8 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Package, Building2, ArrowRight } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
+import { Package, Building2, ArrowRight, ArrowLeft, Mail, KeyRound, CheckCircle2 } from "lucide-react";
 
 export default function AuthPage() {
   const { login, register } = useAuth();
@@ -15,6 +17,13 @@ export default function AuthPage() {
   const { toast } = useToast();
   const [loginLoading, setLoginLoading] = useState(false);
   const [registerLoading, setRegisterLoading] = useState(false);
+
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotStep, setForgotStep] = useState<"email" | "code" | "success">("email");
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotCode, setForgotCode] = useState("");
+  const [forgotNewPassword, setForgotNewPassword] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -41,6 +50,7 @@ export default function AuthPage() {
         adminName: form.get("adminName"),
         adminUsername: form.get("adminUsername"),
         adminPassword: form.get("adminPassword"),
+        adminEmail: form.get("adminEmail"),
       });
       navigate("/");
     } catch (err: any) {
@@ -48,6 +58,48 @@ export default function AuthPage() {
     } finally {
       setRegisterLoading(false);
     }
+  };
+
+  const handleForgotSubmitEmail = async () => {
+    if (!forgotEmail) return;
+    setForgotLoading(true);
+    try {
+      await apiRequest("POST", "/api/auth/forgot-password", { email: forgotEmail });
+      setForgotStep("code");
+      toast({ title: "Código enviado", description: "Verifique seu e-mail para o código de recuperação." });
+    } catch (err: any) {
+      toast({ title: "Erro", description: err.message, variant: "destructive" });
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const handleForgotResetPassword = async () => {
+    if (!forgotCode || !forgotNewPassword) return;
+    setForgotLoading(true);
+    try {
+      const res = await apiRequest("POST", "/api/auth/reset-password", {
+        email: forgotEmail,
+        code: forgotCode,
+        newPassword: forgotNewPassword,
+      });
+      const data = await res.json();
+      if (data.success) {
+        setForgotStep("success");
+      }
+    } catch (err: any) {
+      toast({ title: "Erro", description: err.message, variant: "destructive" });
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const openForgotPassword = () => {
+    setForgotStep("email");
+    setForgotEmail("");
+    setForgotCode("");
+    setForgotNewPassword("");
+    setForgotOpen(true);
   };
 
   return (
@@ -90,9 +142,14 @@ export default function AuthPage() {
                       {loginLoading ? "Entrando..." : "Entrar"}
                       <ArrowRight className="w-4 h-4 ml-2" />
                     </Button>
-                    <p className="text-xs text-center text-muted-foreground mt-2" data-testid="text-forgot-password">
-                      Esqueceu a senha? Entre em contato com o administrador da sua empresa para redefini-la.
-                    </p>
+                    <button
+                      type="button"
+                      onClick={openForgotPassword}
+                      className="w-full text-xs text-center text-primary hover:underline mt-2 cursor-pointer"
+                      data-testid="link-forgot-password"
+                    >
+                      Esqueceu a senha?
+                    </button>
                   </form>
                 </CardContent>
               </Card>
@@ -117,6 +174,10 @@ export default function AuthPage() {
                     <div className="space-y-2">
                       <Label htmlFor="reg-name">Seu Nome</Label>
                       <Input id="reg-name" name="adminName" required data-testid="input-admin-name" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="reg-email">Seu E-mail</Label>
+                      <Input id="reg-email" name="adminEmail" type="email" placeholder="usado para recuperação de senha" data-testid="input-admin-email" />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="reg-username">Usuário</Label>
@@ -167,6 +228,125 @@ export default function AuthPage() {
           </div>
         </div>
       </div>
+
+      <Dialog open={forgotOpen} onOpenChange={setForgotOpen}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-forgot-password">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {forgotStep === "success" ? (
+                <><CheckCircle2 className="w-5 h-5 text-emerald-600" /> Senha Alterada</>
+              ) : (
+                <><KeyRound className="w-5 h-5" /> Recuperar Senha</>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+
+          {forgotStep === "email" && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Informe o e-mail cadastrado na sua conta. Enviaremos um código de 6 dígitos para recuperação.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="forgot-email">E-mail</Label>
+                <Input
+                  id="forgot-email"
+                  type="email"
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
+                  placeholder="seu@email.com"
+                  data-testid="input-forgot-email"
+                />
+              </div>
+              <Button
+                className="w-full"
+                onClick={handleForgotSubmitEmail}
+                disabled={forgotLoading || !forgotEmail}
+                data-testid="button-forgot-send-code"
+              >
+                {forgotLoading ? "Enviando..." : "Enviar Código"}
+                <Mail className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+          )}
+
+          {forgotStep === "code" && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Digite o código de 6 dígitos enviado para <strong>{forgotEmail}</strong> e escolha uma nova senha.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="forgot-code">Código de Verificação</Label>
+                <Input
+                  id="forgot-code"
+                  value={forgotCode}
+                  onChange={(e) => setForgotCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="000000"
+                  maxLength={6}
+                  className="text-center text-2xl tracking-[0.5em] font-mono"
+                  data-testid="input-forgot-code"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="forgot-new-password">Nova Senha</Label>
+                <Input
+                  id="forgot-new-password"
+                  type="password"
+                  value={forgotNewPassword}
+                  onChange={(e) => setForgotNewPassword(e.target.value)}
+                  placeholder="Mínimo 6 caracteres"
+                  minLength={6}
+                  data-testid="input-forgot-new-password"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setForgotStep("email")}
+                  data-testid="button-forgot-back"
+                >
+                  <ArrowLeft className="w-4 h-4 mr-1" />
+                  Voltar
+                </Button>
+                <Button
+                  className="flex-1"
+                  onClick={handleForgotResetPassword}
+                  disabled={forgotLoading || forgotCode.length !== 6 || forgotNewPassword.length < 6}
+                  data-testid="button-forgot-reset"
+                >
+                  {forgotLoading ? "Alterando..." : "Alterar Senha"}
+                </Button>
+              </div>
+              <button
+                type="button"
+                onClick={handleForgotSubmitEmail}
+                className="w-full text-xs text-center text-primary hover:underline cursor-pointer"
+                disabled={forgotLoading}
+                data-testid="link-forgot-resend"
+              >
+                Reenviar código
+              </button>
+            </div>
+          )}
+
+          {forgotStep === "success" && (
+            <div className="space-y-4 text-center">
+              <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mx-auto">
+                <CheckCircle2 className="w-8 h-8 text-emerald-600" />
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Sua senha foi alterada com sucesso! Você já pode fazer login com a nova senha.
+              </p>
+              <Button
+                className="w-full"
+                onClick={() => setForgotOpen(false)}
+                data-testid="button-forgot-close"
+              >
+                Voltar ao Login
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

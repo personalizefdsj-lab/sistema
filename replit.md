@@ -76,6 +76,16 @@ uploads/             - Company logo uploads
 - `/rastrear/:code` - Order tracking (no auth)
 - `/portal/:slug` - Client portal (no auth, phone-based identification)
 
+## Password Recovery
+- **Super Admin reset**: Super admin can reset any company admin's password from the admin panel (key icon button per company)
+- **Self-service forgot password**: Email-based recovery with 6-digit code (15-min expiry)
+  - Flow: Enter email → receive code → enter code + new password → success
+  - Backend: POST /api/auth/forgot-password, POST /api/auth/reset-password
+  - Email sent via nodemailer (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM env vars)
+  - Falls back to console logging if SMTP not configured
+- **Email field**: Users can set recovery email during registration or in Settings page
+  - Users table has `email`, `resetToken`, `resetTokenExpiry` columns
+
 ## Permission System
 - Admins and superadmins bypass all permission checks
 - Employees have explicit permissions stored as JSON array: `["orders","clients","products","stock","financial","conversations","settings","pdv"]`

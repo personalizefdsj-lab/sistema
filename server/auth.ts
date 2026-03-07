@@ -100,6 +100,7 @@ export function setupAuth(app: Express) {
         id: user.id,
         username: user.username,
         name: user.name,
+        email: user.email,
         role: user.role,
         companyId: user.companyId,
         permissions: user.permissions as string[] | null,

@@ -30,9 +30,12 @@ export const users = pgTable("users", {
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
   name: text("name").notNull(),
+  email: text("email"),
   role: text("role").notNull().default("admin"),
   companyId: integer("company_id").references(() => companies.id),
   permissions: jsonb("permissions").$type<string[]>(),
+  resetToken: text("reset_token"),
+  resetTokenExpiry: timestamp("reset_token_expiry"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -255,4 +258,5 @@ export const registerCompanySchema = z.object({
   adminName: z.string().min(2),
   adminUsername: z.string().min(3),
   adminPassword: z.string().min(6),
+  adminEmail: z.string().email().optional().or(z.literal("")),
 });

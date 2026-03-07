@@ -150,6 +150,7 @@ export async function registerRoutes(
       const company = await storage.createCompany({ name: data.companyName, slug, phone: data.companyPhone || null });
       const user = await storage.createUser({
         username: data.adminUsername, password: hashedPassword, name: data.adminName,
+        email: data.adminEmail ? data.adminEmail.trim().toLowerCase() : null,
         role: "admin", companyId: company.id,
       });
 
@@ -173,6 +174,60 @@ export async function registerRoutes(
     return res.json(userData);
   });
 
+  const resetAttempts = new Map<string, { count: number; lastAttempt: number }>();
+  const resetCooldowns = new Map<string, number>();
+
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const { email } = z.object({ email: z.string().email() }).parse(req.body);
+      const normalizedEmail = email.trim().toLowerCase();
+      const cooldown = resetCooldowns.get(normalizedEmail);
+      if (cooldown && Date.now() - cooldown < 60000) {
+        return res.json({ success: true, message: "Se o e-mail estiver cadastrado, você receberá um código de recuperação." });
+      }
+      const user = await storage.getUserByEmail(normalizedEmail);
+      if (user) {
+        const { randomInt } = await import("crypto");
+        const code = String(randomInt(100000, 999999));
+        const expiry = new Date(Date.now() + 15 * 60 * 1000);
+        await storage.updateUser(user.id, { resetToken: code, resetTokenExpiry: expiry } as any);
+        resetCooldowns.set(normalizedEmail, Date.now());
+        resetAttempts.delete(normalizedEmail);
+        const { sendPasswordResetEmail } = await import("./email");
+        await sendPasswordResetEmail(normalizedEmail, code, user.name);
+      }
+      res.json({ success: true, message: "Se o e-mail estiver cadastrado, você receberá um código de recuperação." });
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { email, code, newPassword } = z.object({
+        email: z.string().email(),
+        code: z.string().length(6),
+        newPassword: z.string().min(6),
+      }).parse(req.body);
+      const normalizedEmail = email.trim().toLowerCase();
+      const attempts = resetAttempts.get(normalizedEmail) || { count: 0, lastAttempt: 0 };
+      if (attempts.count >= 5 && Date.now() - attempts.lastAttempt < 15 * 60 * 1000) {
+        return res.status(429).json({ message: "Muitas tentativas. Tente novamente em 15 minutos." });
+      }
+      const user = await storage.getUserByEmail(normalizedEmail);
+      if (!user || !user.resetToken || !user.resetTokenExpiry) {
+        resetAttempts.set(normalizedEmail, { count: attempts.count + 1, lastAttempt: Date.now() });
+        return res.status(400).json({ message: "Código inválido ou expirado" });
+      }
+      if (user.resetToken !== code || new Date(user.resetTokenExpiry) < new Date()) {
+        resetAttempts.set(normalizedEmail, { count: attempts.count + 1, lastAttempt: Date.now() });
+        return res.status(400).json({ message: "Código inválido ou expirado" });
+      }
+      const hashed = await hashPassword(newPassword);
+      await storage.updateUser(user.id, { password: hashed, resetToken: null, resetTokenExpiry: null } as any);
+      resetAttempts.delete(normalizedEmail);
+      res.json({ success: true, message: "Senha alterada com sucesso!" });
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+
   app.get("/api/admin/companies", requireSuperAdmin, async (_req, res) => { res.json(await storage.getAllCompanies()); });
   app.patch("/api/admin/companies/:id", requireSuperAdmin, async (req, res) => {
     const allowed = z.object({ status: z.enum(["active", "suspended"]).optional(), plan: z.enum(["basic", "professional", "premium"]).optional() }).parse(req.body);
@@ -183,6 +238,20 @@ export async function registerRoutes(
   app.delete("/api/admin/companies/:id", requireSuperAdmin, async (req, res) => {
     await storage.deleteCompany(parseInt(req.params.id));
     res.json({ success: true });
+  });
+
+  app.post("/api/admin/companies/:id/reset-password", requireSuperAdmin, async (req, res) => {
+    try {
+      const companyId = parseInt(req.params.id);
+      const companyUsers = await storage.getUsersByCompany(companyId);
+      const adminUser = companyUsers.find(u => u.role === "admin");
+      if (!adminUser) return res.status(404).json({ message: "Administrador da empresa não encontrado" });
+      const { randomBytes } = await import("crypto");
+      const newPassword = randomBytes(6).toString("base64url").slice(0, 8);
+      const hashed = await hashPassword(newPassword);
+      await storage.updateUser(adminUser.id, { password: hashed } as any);
+      res.json({ newPassword, adminUsername: adminUser.username, adminName: adminUser.name });
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
   });
 
   const requireClientsOrPdv = (req: any, res: any, next: any) => {
@@ -509,7 +578,8 @@ export async function registerRoutes(
     try {
       if (req.user!.role !== "admin") return res.status(403).json({ message: "Apenas administradores" });
       const companyId = req.user!.companyId!;
-      const newPassword = Math.random().toString(36).slice(-8);
+      const { randomBytes: rb } = await import("crypto");
+      const newPassword = rb(6).toString("base64url").slice(0, 8);
       const hashed = await hashPassword(newPassword);
       const updated = await storage.updateUser(parseInt(req.params.id), { password: hashed } as any, companyId);
       if (!updated) return res.status(404).json({ message: "Não encontrado" });
@@ -541,6 +611,15 @@ export async function registerRoutes(
       if (!valid) return res.status(400).json({ message: "Senha atual incorreta" });
       const hashed = await hashPassword(newPassword);
       await storage.updateUser(req.user!.id, { password: hashed } as any);
+      res.json({ success: true });
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+
+  app.patch("/api/auth/update-email", requireAuth, async (req, res) => {
+    try {
+      const { email } = z.object({ email: z.string().email().or(z.literal("")) }).parse(req.body);
+      const normalized = email ? email.trim().toLowerCase() : null;
+      await storage.updateUser(req.user!.id, { email: normalized } as any);
       res.json({ success: true });
     } catch (err: any) { res.status(400).json({ message: err.message }); }
   });

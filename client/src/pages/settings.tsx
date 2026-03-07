@@ -8,11 +8,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Upload, Save, Lock } from "lucide-react";
+import { Loader2, Upload, Save, Lock, Mail } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 
 export default function SettingsPage() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [userEmail, setUserEmail] = useState("");
 
   const { data: company, isLoading } = useQuery<Company>({
     queryKey: ["/api/company"],
@@ -86,6 +89,24 @@ export default function SettingsPage() {
     },
     onError: (err: Error) => {
       toast({ title: "Erro ao enviar logo", description: err.message, variant: "destructive" });
+    },
+  });
+
+  useEffect(() => {
+    if (user?.email) setUserEmail(user.email);
+  }, [user]);
+
+  const emailMutation = useMutation({
+    mutationFn: async (email: string) => {
+      const res = await apiRequest("PATCH", "/api/auth/update-email", { email });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      toast({ title: "E-mail atualizado com sucesso" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Erro ao atualizar e-mail", description: err.message, variant: "destructive" });
     },
   });
 
@@ -314,6 +335,45 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       </form>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="h-5 w-5" />
+            E-mail de Recuperação
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Este e-mail será usado para recuperar sua senha caso você a esqueça.
+          </p>
+          <div className="flex gap-3 items-end">
+            <div className="flex-1 space-y-2">
+              <Label htmlFor="userEmail">E-mail</Label>
+              <Input
+                id="userEmail"
+                type="email"
+                value={userEmail}
+                onChange={(e) => setUserEmail(e.target.value)}
+                placeholder="seu@email.com"
+                data-testid="input-user-email"
+              />
+            </div>
+            <Button
+              onClick={() => emailMutation.mutate(userEmail)}
+              disabled={emailMutation.isPending}
+              data-testid="button-save-email"
+            >
+              {emailMutation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
+              Salvar
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <form onSubmit={handlePasswordChange}>
         <Card>

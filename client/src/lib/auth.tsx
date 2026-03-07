@@ -6,6 +6,7 @@ type AuthUser = {
   id: number;
   username: string;
   name: string;
+  email?: string | null;
   role: string;
   companyId: number | null;
   companySlug?: string;

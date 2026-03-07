@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,13 +7,16 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import type { Company } from "@shared/schema";
-import { Building2, Shield, Trash2, CheckCircle2, XCircle } from "lucide-react";
+import { Building2, Shield, Trash2, CheckCircle2, XCircle, KeyRound, Copy } from "lucide-react";
 import { format } from "date-fns";
 
 export default function AdminPage() {
   const { toast } = useToast();
+  const [resetResult, setResetResult] = useState<{ newPassword: string; adminUsername: string; adminName: string } | null>(null);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const { data: companies = [], isLoading } = useQuery<Company[]>({
     queryKey: ["/api/admin/companies"],
   });
@@ -41,6 +45,20 @@ export default function AdminPage() {
     },
     onError: (err: any) => {
       toast({ title: "Erro", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/admin/companies/${id}/reset-password`);
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      setResetResult(data);
+      setResetDialogOpen(true);
+    },
+    onError: (err: any) => {
+      toast({ title: "Erro ao redefinir senha", description: err.message, variant: "destructive" });
     },
   });
 
@@ -154,6 +172,16 @@ export default function AdminPage() {
                         <SelectItem value="premium">Premium</SelectItem>
                       </SelectContent>
                     </Select>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => resetPasswordMutation.mutate(company.id)}
+                      disabled={resetPasswordMutation.isPending}
+                      title="Redefinir senha do admin"
+                      data-testid={`button-reset-password-${company.id}`}
+                    >
+                      <KeyRound className="w-4 h-4 text-amber-600" />
+                    </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button variant="ghost" size="icon" data-testid={`button-delete-company-${company.id}`}>
@@ -185,6 +213,49 @@ export default function AdminPage() {
           ))}
         </div>
       )}
+
+      <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+        <DialogContent data-testid="dialog-reset-password">
+          <DialogHeader>
+            <DialogTitle>Senha Redefinida com Sucesso</DialogTitle>
+          </DialogHeader>
+          {resetResult && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                A senha do administrador <strong>{resetResult.adminName}</strong> foi redefinida.
+              </p>
+              <div className="space-y-2">
+                <div>
+                  <p className="text-xs text-muted-foreground">Usuário</p>
+                  <p className="font-medium" data-testid="text-reset-username">{resetResult.adminUsername}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Nova Senha Temporária</p>
+                  <div className="flex items-center gap-2">
+                    <code className="bg-muted px-3 py-2 rounded text-lg font-mono tracking-wider" data-testid="text-reset-password">
+                      {resetResult.newPassword}
+                    </code>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        navigator.clipboard.writeText(resetResult.newPassword);
+                        toast({ title: "Senha copiada!" });
+                      }}
+                      data-testid="button-copy-password"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                Informe esta senha ao administrador da empresa. Recomende que ele altere a senha após o primeiro acesso.
+              </p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
