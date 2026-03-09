@@ -18,7 +18,7 @@ import type { Order, Client, Product } from "@shared/schema";
 import {
   Plus, Search, AlertTriangle, List, Columns3, Calendar,
   ChevronRight, DollarSign, Clock, Phone, GripVertical, ClipboardList,
-  UserPlus, Trash2, Minus, ShoppingBag, FileText
+  UserPlus, Trash2, Minus, ShoppingBag, FileText, Sparkles, Loader2
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -395,6 +395,50 @@ function CreateOrderDialog({ open, onOpenChange, clients, defaultType }: { open:
     }
   };
 
+  const [parsingText, setParsingText] = useState(false);
+
+  const parseFromDescription = async () => {
+    if (!description.trim()) {
+      toast({ title: "Escreva ou cole a lista na descrição primeiro", variant: "destructive" });
+      return;
+    }
+    setParsingText(true);
+    try {
+      const res = await apiRequest("POST", "/api/orders/parse-items", { text: description });
+      const data = await res.json();
+      if (data.matched && data.matched.length > 0) {
+        setOrderItems(prev => {
+          let updated = [...prev];
+          for (const item of data.matched) {
+            const existing = updated.find(i => i.productId === item.productId);
+            if (existing) {
+              existing.quantity += item.quantity;
+            } else {
+              updated.push({
+                productId: item.productId,
+                productName: item.productName,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+              });
+            }
+          }
+          return recalcPrices(updated);
+        });
+        let msg = `${data.matched.length} produto(s) identificado(s)`;
+        if (data.unmatched && data.unmatched.length > 0) {
+          msg += `. Não encontrados: ${data.unmatched.join(", ")}`;
+        }
+        toast({ title: msg });
+      } else {
+        toast({ title: "Nenhum produto identificado no texto", description: data.unmatched?.length > 0 ? `Linhas não reconhecidas: ${data.unmatched.join(", ")}` : undefined, variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Erro ao analisar texto", description: err.message, variant: "destructive" });
+    } finally {
+      setParsingText(false);
+    }
+  };
+
   const isPending = createClientMutation.isPending || createOrderMutation.isPending;
   const isQuotation = orderType === "quotation";
   const typeLabel = isQuotation ? "Orçamento" : "Pedido";
@@ -564,8 +608,26 @@ function CreateOrderDialog({ open, onOpenChange, clients, defaultType }: { open:
               data-testid="input-order-description"
               value={description}
               onChange={e => setDescription(e.target.value)}
-              placeholder="Observações do pedido..."
+              placeholder="Cole aqui a lista do WhatsApp ou escreva observações..."
+              rows={4}
             />
+            {description.trim() && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={parseFromDescription}
+                disabled={parsingText}
+                data-testid="button-parse-description"
+              >
+                {parsingText ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Analisando...</>
+                ) : (
+                  <><Sparkles className="w-4 h-4 mr-2" /> Importar Produtos da Descrição</>
+                )}
+              </Button>
+            )}
           </div>
 
           <div className="space-y-2">

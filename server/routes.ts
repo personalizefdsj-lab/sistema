@@ -307,6 +307,89 @@ export async function registerRoutes(
     } catch (err: any) { res.status(400).json({ message: err.message }); }
   });
 
+  app.post("/api/orders/parse-items", requireAuth, async (req, res) => {
+    try {
+      const { text } = req.body;
+      if (!text || typeof text !== "string") return res.status(400).json({ message: "Texto não informado" });
+      const companyId = req.user!.companyId!;
+      const allProducts = await storage.getProducts(companyId);
+      const activeProducts = allProducts.filter(p => p.active !== false);
+
+      const normalize = (s: string) =>
+        s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, "").trim();
+
+      const lines = text.split(/\n/).map(l => l.trim()).filter(l => l.length > 0);
+      const matched: { productId: number; productName: string; quantity: number; unitPrice: string }[] = [];
+      const unmatched: string[] = [];
+
+      for (const line of lines) {
+        const qtyMatch = line.match(/^(\d+)\s*[xX\-\.\)\s]\s*(.+)/) || line.match(/^(\d+)\s+(.+)/);
+        let quantity = 1;
+        let productText = line;
+        if (qtyMatch) {
+          quantity = parseInt(qtyMatch[1]);
+          productText = qtyMatch[2];
+        }
+
+        const normalizedSearch = normalize(productText);
+        if (!normalizedSearch) { unmatched.push(line); continue; }
+
+        let bestMatch: (typeof activeProducts)[0] | null = null;
+        let bestScore = 0;
+
+        for (const product of activeProducts) {
+          const normalizedName = normalize(product.name);
+          const normalizedSku = normalize(product.sku || "");
+          const normalizedInternal = normalize(product.internalCode || "");
+
+          if (normalizedName === normalizedSearch || normalizedSku === normalizedSearch || normalizedInternal === normalizedSearch) {
+            bestMatch = product;
+            bestScore = 100;
+            break;
+          }
+
+          const searchWords = normalizedSearch.split(/\s+/).filter(w => w.length > 1);
+          const nameWords = normalizedName.split(/\s+/);
+          let wordMatches = 0;
+          for (const sw of searchWords) {
+            if (nameWords.some(nw => nw.includes(sw) || sw.includes(nw))) wordMatches++;
+          }
+          const score = searchWords.length > 0 ? (wordMatches / searchWords.length) * 100 : 0;
+
+          if (score > bestScore && score >= 40) {
+            bestScore = score;
+            bestMatch = product;
+          }
+
+          if (normalizedName.includes(normalizedSearch) || normalizedSearch.includes(normalizedName)) {
+            if (bestScore < 80) {
+              bestScore = 80;
+              bestMatch = product;
+            }
+          }
+        }
+
+        if (bestMatch) {
+          const existing = matched.find(m => m.productId === bestMatch!.id);
+          if (existing) {
+            existing.quantity += quantity;
+          } else {
+            matched.push({
+              productId: bestMatch.id,
+              productName: bestMatch.name,
+              quantity,
+              unitPrice: bestMatch.price,
+            });
+          }
+        } else {
+          unmatched.push(line);
+        }
+      }
+
+      res.json({ matched, unmatched });
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+
   app.get("/api/orders", requireAuth, requirePermission("orders"), async (req, res) => { res.json(await storage.getOrders(req.user!.companyId!)); });
   app.get("/api/orders/:id", requireAuth, async (req, res) => {
     const order = await storage.getOrder(parseInt(req.params.id), req.user!.companyId!);
