@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { ORDER_STATUSES, ORDER_STATUS_LABELS, FINANCIAL_STATUS_LABELS } from "@shared/schema";
 import type { Order, Client, OrderHistory, OrderItem, Product, Company } from "@shared/schema";
-import { ArrowLeft, AlertTriangle, Clock, Phone, History, Package, Calendar, Plus, Minus, Trash2, Search, Printer, ArrowRightLeft, Sparkles, Loader2 } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Clock, Phone, History, Package, Calendar, Plus, Minus, Trash2, Search, Printer, ArrowRightLeft } from "lucide-react";
 import { format } from "date-fns";
 
 const statusColors: Record<string, string> = {
@@ -48,8 +48,6 @@ export default function OrderDetail({
   const { toast } = useToast();
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [parsingText, setParsingText] = useState(false);
-  const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
   const { data: order, isLoading } = useQuery<Order>({
@@ -134,55 +132,6 @@ export default function OrderDetail({
     onSuccess: () => { invalidateItems(); toast({ title: "Produto removido" }); },
     onError: (err: any) => { toast({ title: "Erro", description: err.message, variant: "destructive" }); },
   });
-
-  const parseFromDescription = async () => {
-    if (!order) return;
-    const descText = descriptionRef.current?.value || order.description;
-    if (!descText || !descText.trim()) {
-      toast({ title: "A descrição do pedido está vazia", variant: "destructive" });
-      return;
-    }
-    if (descText !== (order.description || "")) {
-      updateMutation.mutate({ description: descText });
-    }
-    setParsingText(true);
-    try {
-      const res = await apiRequest("POST", "/api/orders/parse-items", { text: descText });
-      const data = await res.json();
-      if (data.matched && data.matched.length > 0) {
-        let addedCount = 0;
-        for (const item of data.matched) {
-          const existingItem = orderItems.find(oi => oi.productId === item.productId);
-          if (existingItem) {
-            await updateItemMutation.mutateAsync({
-              itemId: existingItem.id,
-              quantity: existingItem.quantity + item.quantity,
-            });
-            addedCount++;
-          } else {
-            await addItemMutation.mutateAsync({
-              productId: item.productId,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-            });
-            addedCount++;
-          }
-        }
-        invalidateItems();
-        let msg = `${addedCount} produto(s) identificado(s) e adicionado(s)`;
-        if (data.unmatched && data.unmatched.length > 0) {
-          msg += `. Não encontrados: ${data.unmatched.join(", ")}`;
-        }
-        toast({ title: msg });
-      } else {
-        toast({ title: "Nenhum produto identificado no texto", description: data.unmatched?.length > 0 ? `Linhas não reconhecidas: ${data.unmatched.join(", ")}` : undefined, variant: "destructive" });
-      }
-    } catch (err: any) {
-      toast({ title: "Erro ao analisar texto", description: err.message, variant: "destructive" });
-    } finally {
-      setParsingText(false);
-    }
-  };
 
   if (isLoading || !order) {
     return (
@@ -361,10 +310,9 @@ export default function OrderDetail({
               <div className="space-y-1">
                 <Label className="text-muted-foreground text-xs">Descrição</Label>
                 <Textarea
-                  ref={descriptionRef}
                   data-testid="input-order-description"
                   defaultValue={order.description || ""}
-                  placeholder="Cole aqui a lista do WhatsApp ou adicione observações..."
+                  placeholder="Adicionar descrição do pedido..."
                   rows={3}
                   onBlur={e => {
                     if (e.target.value !== (order.description || "")) {
@@ -372,23 +320,6 @@ export default function OrderDetail({
                     }
                   }}
                 />
-                {(order.description?.trim() || descriptionRef.current?.value?.trim()) && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="w-full no-print"
-                    onClick={parseFromDescription}
-                    disabled={parsingText}
-                    data-testid="button-parse-description"
-                  >
-                    {parsingText ? (
-                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Analisando...</>
-                    ) : (
-                      <><Sparkles className="w-4 h-4 mr-2" /> Importar Produtos da Descrição</>
-                    )}
-                  </Button>
-                )}
               </div>
               <div className="no-print">
                 <Label className="text-muted-foreground text-xs">Status</Label>
