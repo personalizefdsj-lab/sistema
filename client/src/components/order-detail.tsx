@@ -11,9 +11,9 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { ORDER_STATUSES, ORDER_STATUS_LABELS, FINANCIAL_STATUS_LABELS } from "@shared/schema";
-import type { Order, Client, OrderHistory, OrderItem, Product, Company } from "@shared/schema";
-import { ArrowLeft, AlertTriangle, Clock, Phone, History, Package, Calendar, Plus, Minus, Trash2, Search, Printer, ArrowRightLeft } from "lucide-react";
+import { ORDER_STATUSES, ORDER_STATUS_LABELS, FINANCIAL_STATUS_LABELS, INVOICE_STATUS_LABELS } from "@shared/schema";
+import type { Order, Client, OrderHistory, OrderItem, Product, Company, Invoice } from "@shared/schema";
+import { ArrowLeft, AlertTriangle, Clock, Phone, History, Package, Calendar, Plus, Minus, Trash2, Search, Printer, ArrowRightLeft, FileText, Download, XCircle, RefreshCw, ExternalLink } from "lucide-react";
 import { format } from "date-fns";
 
 const statusColors: Record<string, string> = {
@@ -131,6 +131,61 @@ export default function OrderDetail({
     },
     onSuccess: () => { invalidateItems(); toast({ title: "Produto removido" }); },
     onError: (err: any) => { toast({ title: "Erro", description: err.message, variant: "destructive" }); },
+  });
+
+  const { data: orderInvoices = [] } = useQuery<Invoice[]>({
+    queryKey: ["/api/orders", orderId, "invoices"],
+  });
+
+  const emitInvoiceMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/orders/${orderId}/invoice`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders", orderId, "invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      if (data.status === "authorized") {
+        toast({ title: "NF-e autorizada com sucesso!" });
+      } else if (data.status === "processing") {
+        toast({ title: "NF-e enviada, aguardando autorização" });
+      } else if (data.status === "error") {
+        toast({ title: "Erro na emissão", description: data.errorMessage, variant: "destructive" });
+      }
+    },
+    onError: (err: any) => {
+      toast({ title: "Erro ao emitir NF-e", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const cancelInvoiceMutation = useMutation({
+    mutationFn: async ({ id, justificativa }: { id: number; justificativa: string }) => {
+      const res = await apiRequest("POST", `/api/invoices/${id}/cancel`, { justificativa });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders", orderId, "invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      toast({ title: "NF-e cancelada" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Erro ao cancelar", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const refreshInvoiceMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/invoices/${id}/refresh`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders", orderId, "invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      toast({ title: "Status atualizado" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Erro ao atualizar", description: err.message, variant: "destructive" });
+    },
   });
 
   if (isLoading || !order) {
@@ -552,6 +607,18 @@ export default function OrderDetail({
           />
         )}
 
+        <InvoiceSection
+          order={order}
+          invoices={orderInvoices}
+          client={client}
+          onEmit={() => emitInvoiceMutation.mutate()}
+          isEmitting={emitInvoiceMutation.isPending}
+          onCancel={(id, justificativa) => cancelInvoiceMutation.mutate({ id, justificativa })}
+          isCancelling={cancelInvoiceMutation.isPending}
+          onRefresh={(id) => refreshInvoiceMutation.mutate(id)}
+          isRefreshing={refreshInvoiceMutation.isPending}
+        />
+
         <Card className="no-print">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
@@ -591,6 +658,210 @@ export default function OrderDetail({
         </Card>
       </div>
     </>
+  );
+}
+
+const invoiceStatusColors: Record<string, string> = {
+  pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+  processing: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  authorized: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
+  cancelled: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
+  error: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+};
+
+function InvoiceSection({
+  order,
+  invoices,
+  client,
+  onEmit,
+  isEmitting,
+  onCancel,
+  isCancelling,
+  onRefresh,
+  isRefreshing,
+}: {
+  order: Order;
+  invoices: Invoice[];
+  client?: Client;
+  onEmit: () => void;
+  isEmitting: boolean;
+  onCancel: (id: number, justificativa: string) => void;
+  isCancelling: boolean;
+  onRefresh: (id: number) => void;
+  isRefreshing: boolean;
+}) {
+  const [cancelId, setCancelId] = useState<number | null>(null);
+  const [justificativa, setJustificativa] = useState("");
+
+  const hasAuthorized = invoices.some(inv => inv.status === "authorized");
+  const hasProcessing = invoices.some(inv => inv.status === "processing");
+  const canEmit = !hasAuthorized && !hasProcessing && order.type !== "quotation";
+
+  const warnings: string[] = [];
+  if (!client?.document) warnings.push("Cliente sem CPF/CNPJ cadastrado");
+
+  return (
+    <Card className="no-print">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <FileText className="w-4 h-4" />
+          Nota Fiscal (NF-e)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {warnings.length > 0 && (
+          <div className="space-y-1">
+            {warnings.map((w, i) => (
+              <p key={i} className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" />
+                {w}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {invoices.length === 0 ? (
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">Nenhuma nota fiscal emitida para este pedido.</p>
+            {canEmit && (
+              <Button
+                size="sm"
+                onClick={onEmit}
+                disabled={isEmitting || warnings.length > 0}
+                data-testid="button-emit-invoice"
+              >
+                <FileText className="w-3 h-3 mr-1" />
+                {isEmitting ? "Emitindo..." : "Emitir NF-e"}
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {invoices.map(inv => (
+              <div key={inv.id} className="border rounded-lg p-3 space-y-2" data-testid={`invoice-detail-${inv.id}`}>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold">NF-e #{inv.numero}</span>
+                    <Badge className={invoiceStatusColors[inv.status] || ""} data-testid={`badge-invoice-${inv.id}`}>
+                      {INVOICE_STATUS_LABELS[inv.status] || inv.status}
+                    </Badge>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    R$ {parseFloat(inv.valorTotal || "0").toFixed(2)}
+                  </span>
+                </div>
+
+                {inv.chaveAcesso && (
+                  <p className="text-xs text-muted-foreground font-mono break-all" data-testid={`text-chave-acesso-${inv.id}`}>
+                    Chave: {inv.chaveAcesso}
+                  </p>
+                )}
+
+                {inv.errorMessage && (
+                  <p className="text-xs text-destructive" data-testid={`text-invoice-error-${inv.id}`}>
+                    {inv.errorMessage}
+                  </p>
+                )}
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {inv.status === "processing" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onRefresh(inv.id)}
+                      disabled={isRefreshing}
+                      data-testid={`button-refresh-invoice-${inv.id}`}
+                    >
+                      <RefreshCw className="w-3 h-3 mr-1" />
+                      Atualizar Status
+                    </Button>
+                  )}
+                  {inv.status === "authorized" && inv.pdfUrl && (
+                    <Button size="sm" variant="outline" asChild data-testid={`button-pdf-${inv.id}`}>
+                      <a href={inv.pdfUrl} target="_blank" rel="noopener noreferrer">
+                        <Download className="w-3 h-3 mr-1" />
+                        DANFE
+                      </a>
+                    </Button>
+                  )}
+                  {inv.status === "authorized" && inv.xmlUrl && (
+                    <Button size="sm" variant="outline" asChild data-testid={`button-xml-${inv.id}`}>
+                      <a href={inv.xmlUrl} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="w-3 h-3 mr-1" />
+                        XML
+                      </a>
+                    </Button>
+                  )}
+                  {inv.status === "authorized" && cancelId !== inv.id && (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => setCancelId(inv.id)}
+                      data-testid={`button-cancel-invoice-${inv.id}`}
+                    >
+                      <XCircle className="w-3 h-3 mr-1" />
+                      Cancelar
+                    </Button>
+                  )}
+                </div>
+
+                {cancelId === inv.id && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <Input
+                      placeholder="Justificativa (mín. 15 caracteres)"
+                      value={justificativa}
+                      onChange={e => setJustificativa(e.target.value)}
+                      className="flex-1"
+                      data-testid={`input-cancel-justificativa-${inv.id}`}
+                    />
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={justificativa.length < 15 || isCancelling}
+                      onClick={() => {
+                        onCancel(inv.id, justificativa);
+                        setCancelId(null);
+                        setJustificativa("");
+                      }}
+                      data-testid={`button-confirm-cancel-${inv.id}`}
+                    >
+                      Confirmar
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setCancelId(null); setJustificativa(""); }}>
+                      Voltar
+                    </Button>
+                  </div>
+                )}
+
+                {inv.status === "error" && canEmit && (
+                  <Button
+                    size="sm"
+                    onClick={onEmit}
+                    disabled={isEmitting}
+                    data-testid="button-retry-invoice"
+                  >
+                    <FileText className="w-3 h-3 mr-1" />
+                    {isEmitting ? "Emitindo..." : "Tentar Novamente"}
+                  </Button>
+                )}
+              </div>
+            ))}
+
+            {canEmit && !hasAuthorized && !hasProcessing && (
+              <Button
+                size="sm"
+                onClick={onEmit}
+                disabled={isEmitting || warnings.length > 0}
+                data-testid="button-emit-invoice"
+              >
+                <FileText className="w-3 h-3 mr-1" />
+                {isEmitting ? "Emitindo..." : "Emitir NF-e"}
+              </Button>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

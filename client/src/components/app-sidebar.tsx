@@ -35,6 +35,7 @@ import {
   Monitor,
   Moon,
   Sun,
+  FileText,
 } from "lucide-react";
 
 export function AppSidebar() {
@@ -65,6 +66,7 @@ export function AppSidebar() {
     { title: "Produtos", url: "/products", icon: ShoppingBag, perm: "products" },
     { title: "Estoque", url: "/stock", icon: Warehouse, perm: "stock" },
     { title: "Financeiro", url: "/financial", icon: DollarSign, perm: "financial" },
+    { title: "Notas Fiscais", url: "/invoices", icon: FileText, perm: "financial" },
     { title: "Vendas Online", url: "/sales", icon: TrendingUp, perm: null },
     { title: "Conversas", url: "/conversations", icon: MessageSquare, perm: "conversations" },
   ];

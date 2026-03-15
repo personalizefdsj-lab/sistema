@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Upload, Save, Lock, Mail } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, Upload, Save, Lock, Mail, FileText } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 export default function SettingsPage() {
@@ -34,6 +36,15 @@ export default function SettingsPage() {
     primaryColor: "#3B82F6",
   });
 
+  const [fiscalForm, setFiscalForm] = useState({
+    inscricaoEstadual: "",
+    regimeTributario: "",
+    ambienteFiscal: "homologacao",
+    serieNfe: "1",
+    focusnfeToken: "",
+    certificadoSenha: "",
+  });
+
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
     newPassword: "",
@@ -53,6 +64,14 @@ export default function SettingsPage() {
         zipCode: company.zipCode || "",
         description: company.description || "",
         primaryColor: company.primaryColor || "#3B82F6",
+      });
+      setFiscalForm({
+        inscricaoEstadual: (company as any).inscricaoEstadual || "",
+        regimeTributario: (company as any).regimeTributario ? String((company as any).regimeTributario) : "",
+        ambienteFiscal: (company as any).ambienteFiscal || "homologacao",
+        serieNfe: (company as any).serieNfe ? String((company as any).serieNfe) : "1",
+        focusnfeToken: (company as any).focusnfeToken || "",
+        certificadoSenha: (company as any).certificadoSenha || "",
       });
     }
   }, [company]);
@@ -124,9 +143,36 @@ export default function SettingsPage() {
     },
   });
 
+  const fiscalMutation = useMutation({
+    mutationFn: async (data: typeof fiscalForm) => {
+      const payload: any = {
+        inscricaoEstadual: data.inscricaoEstadual || null,
+        regimeTributario: data.regimeTributario ? parseInt(data.regimeTributario) : null,
+        ambienteFiscal: data.ambienteFiscal,
+        serieNfe: parseInt(data.serieNfe) || 1,
+        focusnfeToken: data.focusnfeToken || null,
+        certificadoSenha: data.certificadoSenha || null,
+      };
+      const res = await apiRequest("PATCH", "/api/company", payload);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company"] });
+      toast({ title: "Configurações fiscais salvas" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Erro ao salvar configurações fiscais", description: err.message, variant: "destructive" });
+    },
+  });
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     updateMutation.mutate(form);
+  };
+
+  const handleFiscalSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    fiscalMutation.mutate(fiscalForm);
   };
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -374,6 +420,122 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <form onSubmit={handleFiscalSave}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Configurações Fiscais (NF-e)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="inscricaoEstadual">Inscrição Estadual</Label>
+                <Input
+                  id="inscricaoEstadual"
+                  value={fiscalForm.inscricaoEstadual}
+                  onChange={(e) => setFiscalForm({ ...fiscalForm, inscricaoEstadual: e.target.value })}
+                  placeholder="Ex: 123456789"
+                  data-testid="input-inscricao-estadual"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="regimeTributario">Regime Tributário</Label>
+                <Select
+                  value={fiscalForm.regimeTributario}
+                  onValueChange={(v) => setFiscalForm({ ...fiscalForm, regimeTributario: v })}
+                >
+                  <SelectTrigger data-testid="select-regime-tributario">
+                    <SelectValue placeholder="Selecione o regime" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1 - Simples Nacional</SelectItem>
+                    <SelectItem value="2">2 - Simples Nacional (Excesso)</SelectItem>
+                    <SelectItem value="3">3 - Regime Normal</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="ambienteFiscal">Ambiente</Label>
+                <Select
+                  value={fiscalForm.ambienteFiscal}
+                  onValueChange={(v) => setFiscalForm({ ...fiscalForm, ambienteFiscal: v })}
+                >
+                  <SelectTrigger data-testid="select-ambiente-fiscal">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="homologacao">Homologação (Testes)</SelectItem>
+                    <SelectItem value="producao">Produção</SelectItem>
+                  </SelectContent>
+                </Select>
+                {fiscalForm.ambienteFiscal === "homologacao" && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">Modo de testes - notas não terão valor fiscal</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="serieNfe">Série NF-e</Label>
+                <Input
+                  id="serieNfe"
+                  type="number"
+                  min="1"
+                  value={fiscalForm.serieNfe}
+                  onChange={(e) => setFiscalForm({ ...fiscalForm, serieNfe: e.target.value })}
+                  data-testid="input-serie-nfe"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="focusnfeToken">Token da API Fiscal (Focus NFe)</Label>
+              <Input
+                id="focusnfeToken"
+                type="password"
+                value={fiscalForm.focusnfeToken}
+                onChange={(e) => setFiscalForm({ ...fiscalForm, focusnfeToken: e.target.value })}
+                placeholder="Token fornecido pelo Focus NFe"
+                data-testid="input-focusnfe-token"
+              />
+              <p className="text-xs text-muted-foreground">Obtenha em focusnfe.com.br</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="certificadoSenha">Senha do Certificado Digital (A1)</Label>
+              <Input
+                id="certificadoSenha"
+                type="password"
+                value={fiscalForm.certificadoSenha}
+                onChange={(e) => setFiscalForm({ ...fiscalForm, certificadoSenha: e.target.value })}
+                placeholder="Senha do certificado .pfx/.p12"
+                data-testid="input-certificado-senha"
+              />
+            </div>
+
+            {(company as any)?.proximoNumeroNfe && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span>Próximo número NF-e:</span>
+                <Badge variant="outline" data-testid="text-proximo-numero-nfe">{(company as any).proximoNumeroNfe}</Badge>
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <Button type="submit" disabled={fiscalMutation.isPending} data-testid="button-save-fiscal">
+                {fiscalMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="mr-2 h-4 w-4" />
+                )}
+                Salvar Configurações Fiscais
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </form>
 
       <form onSubmit={handlePasswordChange}>
         <Card>

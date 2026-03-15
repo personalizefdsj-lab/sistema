@@ -244,6 +244,7 @@ function ProductDialog({ open, onOpenChange, product }: { open: boolean; onOpenC
     stockQuantity: 0, minStock: 0,
     sizes: "", colors: "", models: "",
     generateChildren: true,
+    ncm: "", cfop: "", unidade: "UN",
   });
 
   const [childPreviews, setChildPreviews] = useState<{ label: string; price: string; wholesalePrice: string; stock: number }[]>([]);
@@ -261,6 +262,7 @@ function ProductDialog({ open, onOpenChange, product }: { open: boolean; onOpenC
         stockQuantity: product.stockQuantity || 0, minStock: product.minStock || 0,
         sizes: v?.sizes?.join(", ") || "", colors: v?.colors?.join(", ") || "", models: v?.models?.join(", ") || "",
         generateChildren: false,
+        ncm: (product as any).ncm || "", cfop: (product as any).cfop || "", unidade: (product as any).unidade || "UN",
       });
       setChildPreviews([]);
     } else {
@@ -269,6 +271,7 @@ function ProductDialog({ open, onOpenChange, product }: { open: boolean; onOpenC
         internalCode: "", imageUrl: "", active: true, productType: "physical",
         stockQuantity: 0, minStock: 0, sizes: "", colors: "", models: "",
         generateChildren: true,
+        ncm: "", cfop: "", unidade: "UN",
       });
       setChildPreviews([]);
     }
@@ -347,6 +350,7 @@ function ProductDialog({ open, onOpenChange, product }: { open: boolean; onOpenC
       variations: Object.keys(variations).length > 0 ? variations : null,
       generateChildren: !product && form.generateChildren && childPreviews.length > 0,
       childOverrides: Object.keys(childOverrides).length > 0 ? childOverrides : undefined,
+      ncm: form.ncm || null, cfop: form.cfop || null, unidade: form.unidade || "UN",
     });
   };
 
@@ -415,6 +419,23 @@ function ProductDialog({ open, onOpenChange, product }: { open: boolean; onOpenC
               </div>
             </>
           )}
+          <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
+            <Label className="text-sm font-semibold">Dados Fiscais (NF-e)</Label>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label className="text-xs">NCM</Label>
+                <Input data-testid="input-product-ncm" value={form.ncm} onChange={e => setForm(f => ({ ...f, ncm: e.target.value }))} placeholder="00000000" />
+              </div>
+              <div>
+                <Label className="text-xs">CFOP</Label>
+                <Input data-testid="input-product-cfop" value={form.cfop} onChange={e => setForm(f => ({ ...f, cfop: e.target.value }))} placeholder="5102" />
+              </div>
+              <div>
+                <Label className="text-xs">Unidade</Label>
+                <Input data-testid="input-product-unidade" value={form.unidade} onChange={e => setForm(f => ({ ...f, unidade: e.target.value }))} placeholder="UN" />
+              </div>
+            </div>
+          </div>
           {form.productType === "physical" && (
             <div className="grid grid-cols-2 gap-3">
               <div>

@@ -1,7 +1,7 @@
 import { eq, and, desc, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
-  companies, users, clients, orders, orderHistory, messages, products, stockMovements, orderItems, expenses,
+  companies, users, clients, orders, orderHistory, messages, products, stockMovements, orderItems, expenses, invoices,
   type Company, type InsertCompany,
   type User, type InsertUser,
   type Client, type InsertClient,
@@ -12,6 +12,7 @@ import {
   type StockMovement, type InsertStockMovement,
   type OrderItem, type InsertOrderItem,
   type Expense, type InsertExpense,
+  type Invoice, type InsertInvoice,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -82,6 +83,12 @@ export interface IStorage {
   getExpenses(companyId: number): Promise<Expense[]>;
   createExpense(expense: InsertExpense): Promise<Expense>;
   deleteExpense(id: number, companyId: number): Promise<void>;
+
+  createInvoice(invoice: InsertInvoice): Promise<Invoice>;
+  getInvoice(id: number, companyId: number): Promise<Invoice | undefined>;
+  getInvoicesByOrder(orderId: number, companyId: number): Promise<Invoice[]>;
+  getInvoicesByCompany(companyId: number): Promise<Invoice[]>;
+  updateInvoice(id: number, companyId: number, data: Partial<InsertInvoice>): Promise<Invoice | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -409,6 +416,10 @@ export class DatabaseStorage implements IStorage {
         stockQuantity: overrides.stockQuantity ?? parent.stockQuantity ?? 0,
         minStock: parent.minStock,
         sku,
+        ncm: parent.ncm,
+        cfop: parent.cfop,
+        icmsOrigem: parent.icmsOrigem,
+        unidade: parent.unidade,
       });
       children.push(child);
     }
@@ -548,6 +559,35 @@ export class DatabaseStorage implements IStorage {
 
   async deleteExpense(id: number, companyId: number): Promise<void> {
     await db.delete(expenses).where(and(eq(expenses.id, id), eq(expenses.companyId, companyId)));
+  }
+
+  async createInvoice(invoice: InsertInvoice): Promise<Invoice> {
+    const [created] = await db.insert(invoices).values(invoice).returning();
+    return created;
+  }
+
+  async getInvoice(id: number, companyId: number): Promise<Invoice | undefined> {
+    const [invoice] = await db.select().from(invoices).where(
+      and(eq(invoices.id, id), eq(invoices.companyId, companyId))
+    );
+    return invoice;
+  }
+
+  async getInvoicesByOrder(orderId: number, companyId: number): Promise<Invoice[]> {
+    return db.select().from(invoices).where(
+      and(eq(invoices.orderId, orderId), eq(invoices.companyId, companyId))
+    ).orderBy(desc(invoices.createdAt));
+  }
+
+  async getInvoicesByCompany(companyId: number): Promise<Invoice[]> {
+    return db.select().from(invoices).where(eq(invoices.companyId, companyId)).orderBy(desc(invoices.createdAt));
+  }
+
+  async updateInvoice(id: number, companyId: number, data: Partial<InsertInvoice>): Promise<Invoice | undefined> {
+    const [updated] = await db.update(invoices).set(data)
+      .where(and(eq(invoices.id, id), eq(invoices.companyId, companyId)))
+      .returning();
+    return updated;
   }
 }
 

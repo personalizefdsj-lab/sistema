@@ -95,11 +95,22 @@ uploads/             - Company logo uploads
 - Sidebar dynamically hides pages based on permissions (client-side)
 - Employee management routes scoped by `companyId` to prevent cross-tenant access
 
+## NF-e Fiscal Invoice System
+- **Fiscal Settings**: Company-level configuration in Settings > Fiscal (Inscrição Estadual, Regime Tributário, Ambiente, Série, Focus NFe token)
+- **Product Fiscal Fields**: NCM, CFOP, Unidade on each product (product create/edit form)
+- **Invoice Emission**: From order detail, emits NF-e via Focus NFe API (POST /api/orders/:id/invoice)
+- **Invoice Management**: Dedicated /invoices page with status filters, DANFE/XML download, cancellation
+- **Invoice Statuses**: pending, processing, authorized, cancelled, error
+- **Backend Service**: `server/fiscal.ts` builds NF-e payload and communicates with Focus NFe API
+- **Storage**: `invoices` table with company_id, order_id, client_id, numero, serie, chave_acesso, protocolo, status, etc.
+- **Validation**: Requires company CNPJ, Focus NFe token, client CPF/CNPJ, and order items before emitting
+
 ## Database
 - PostgreSQL via Drizzle ORM
-- Tables: companies, users, clients, orders, order_history, messages, products, stock_movements, order_items, expenses, session
+- Tables: companies, users, clients, orders, order_history, messages, products, stock_movements, order_items, expenses, invoices, session
 - Schema migrations done via ALTER TABLE SQL (avoid drizzle-kit push to preserve session table)
-- Companies have: cnpj, address, neighborhood, city, state, zipCode fields
+- Companies have: cnpj, address, neighborhood, city, state, zipCode, fiscal fields (inscricao_estadual, regime_tributario, certificado_digital, certificado_senha, ambiente_fiscal, serie_nfe, proximo_numero_nfe, focusnfe_token)
+- Products have: ncm, cfop, icms_origem, unidade (fiscal fields for NF-e)
 - Clients have: personType, document, neighborhood, streetNumber, city, state fields (phone is optional)
 - Users have: permissions (jsonb array)
 - Orders have: type field ("order"|"quotation")

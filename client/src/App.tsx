@@ -24,6 +24,7 @@ import ClientPortal from "@/pages/client-portal";
 import SettingsPage from "@/pages/settings";
 import EmployeesPage from "@/pages/employees";
 import FinancialPage from "@/pages/financial";
+import InvoicesPage from "@/pages/invoices";
 import PdvPage from "@/pages/pdv";
 
 function ProtectedRouter() {
@@ -72,6 +73,7 @@ function ProtectedRouter() {
         <Route path="/settings" component={SettingsPage} />
         <Route path="/employees" component={EmployeesPage} />
         <Route path="/financial" component={FinancialPage} />
+        <Route path="/invoices" component={InvoicesPage} />
         <Route path="/pdv" component={PdvPage} />
         <Route component={NotFound} />
       </Switch>

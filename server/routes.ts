@@ -85,6 +85,9 @@ const createProductSchema = z.object({
   }).optional().nullable(),
   stockQuantity: z.number().optional().default(0),
   minStock: z.number().optional().default(0),
+  ncm: z.string().optional().nullable(),
+  cfop: z.string().optional().nullable(),
+  unidade: z.string().optional().nullable(),
   generateChildren: z.boolean().optional().default(false),
   childOverrides: z.record(z.string(), z.object({
     price: z.string().optional(),
@@ -478,7 +481,13 @@ export async function registerRoutes(
   app.get("/api/company", requireAuth, async (req, res) => {
     const company = await storage.getCompany(req.user!.companyId!);
     if (!company) return res.status(404).json({ message: "Não encontrado" });
-    res.json(company);
+    const { focusnfeToken, certificadoSenha, certificadoDigital, ...safeCompany } = company as any;
+    res.json({
+      ...safeCompany,
+      focusnfeToken: focusnfeToken ? "••••••••" : "",
+      certificadoSenha: certificadoSenha ? "••••••••" : "",
+      certificadoDigital: certificadoDigital ? "(certificado configurado)" : "",
+    });
   });
   app.patch("/api/company", requireAuth, async (req, res) => {
     const allowed = z.object({
@@ -495,8 +504,19 @@ export async function registerRoutes(
       city: z.string().optional().nullable(),
       state: z.string().optional().nullable(),
       zipCode: z.string().optional().nullable(),
+      inscricaoEstadual: z.string().optional().nullable(),
+      regimeTributario: z.number().int().min(1).max(3).optional().nullable(),
+      certificadoDigital: z.string().optional().nullable(),
+      certificadoSenha: z.string().optional().nullable(),
+      ambienteFiscal: z.enum(["homologacao", "producao"]).optional(),
+      serieNfe: z.number().int().optional(),
+      focusnfeToken: z.string().optional().nullable(),
     }).parse(req.body);
-    const updated = await storage.updateCompany(req.user!.companyId!, allowed);
+    const filtered = { ...allowed } as any;
+    if (filtered.focusnfeToken === "••••••••") delete filtered.focusnfeToken;
+    if (filtered.certificadoSenha === "••••••••") delete filtered.certificadoSenha;
+    if (filtered.certificadoDigital === "(certificado configurado)") delete filtered.certificadoDigital;
+    const updated = await storage.updateCompany(req.user!.companyId!, filtered);
     res.json(updated);
   });
 
@@ -689,6 +709,177 @@ export async function registerRoutes(
     try {
       await storage.deleteExpense(parseInt(req.params.id), req.user!.companyId!);
       res.json({ success: true });
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+
+  // Invoice routes
+  app.post("/api/orders/:id/invoice", requireAuth, requirePermission("financial"), async (req, res) => {
+    try {
+      const companyId = req.user!.companyId!;
+      const orderId = parseInt(req.params.id);
+      const order = await storage.getOrder(orderId, companyId);
+      if (!order) return res.status(404).json({ message: "Pedido não encontrado" });
+
+      if (order.type === "quotation") return res.status(400).json({ message: "Não é possível emitir NF-e para orçamentos" });
+
+      const existingInvoices = await storage.getInvoicesByOrder(orderId, companyId);
+      const hasActiveInvoice = existingInvoices.some(inv => inv.status === "authorized" || inv.status === "processing");
+      if (hasActiveInvoice) return res.status(400).json({ message: "Já existe uma NF-e autorizada ou em processamento para este pedido" });
+
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Empresa não encontrada" });
+
+      if (!company.cnpj) return res.status(400).json({ message: "CNPJ da empresa não configurado" });
+      if (!company.focusnfeToken) return res.status(400).json({ message: "Token da API fiscal não configurado. Configure nas Configurações > Fiscal." });
+
+      const client = await storage.getClient(order.clientId, companyId);
+      if (!client) return res.status(404).json({ message: "Cliente não encontrado" });
+      if (!client.document) return res.status(400).json({ message: "CPF/CNPJ do cliente não cadastrado" });
+
+      const orderItemsList = await storage.getOrderItems(orderId);
+      if (orderItemsList.length === 0) return res.status(400).json({ message: "Pedido sem itens" });
+
+      const productsList = await storage.getProducts(companyId);
+
+      const numero = company.proximoNumeroNfe || 1;
+      const serie = company.serieNfe || 1;
+
+      const { buildNFePayload, createFiscalService } = await import("./fiscal");
+      const payload = buildNFePayload(company, client, order, orderItemsList, productsList, numero, serie);
+
+      const invoice = await storage.createInvoice({
+        companyId,
+        orderId,
+        clientId: client.id,
+        numero,
+        serie,
+        status: "processing",
+        tipo: "nfe",
+        valorTotal: order.totalValue || "0",
+        externalId: `nfe-${companyId}-${numero}`,
+      });
+
+      await storage.updateCompany(companyId, { proximoNumeroNfe: numero + 1 } as any);
+
+      try {
+        const fiscalService = createFiscalService(company.focusnfeToken, company.ambienteFiscal || "homologacao");
+        const ref = `nfe-${companyId}-${numero}`;
+        const result = await fiscalService.emitirNFe(ref, payload);
+
+        if (result.status === "autorizado" || result.status_sefaz === "100") {
+          await storage.updateInvoice(invoice.id, companyId, {
+            status: "authorized",
+            chaveAcesso: result.chave_nfe || result.chave_acesso,
+            protocolo: result.numero_protocolo || result.protocolo,
+            pdfUrl: result.caminho_danfe || result.url_danfe,
+            xmlUrl: result.caminho_xml_nota_fiscal || result.url_xml,
+            externalId: ref,
+          } as any);
+          const updated = await storage.getInvoice(invoice.id, companyId);
+          return res.json(updated);
+        } else if (result.status === "processando_autorizacao" || result.status === "em_processamento") {
+          await storage.updateInvoice(invoice.id, companyId, {
+            status: "processing",
+            externalId: ref,
+          } as any);
+          const updated = await storage.getInvoice(invoice.id, companyId);
+          return res.json(updated);
+        } else {
+          const errorMsg = result.mensagem_sefaz || result.mensagem || result.erros?.map((e: any) => e.mensagem).join("; ") || "Erro desconhecido";
+          await storage.updateInvoice(invoice.id, companyId, {
+            status: "error",
+            errorMessage: errorMsg,
+            externalId: ref,
+          } as any);
+          const updated = await storage.getInvoice(invoice.id, companyId);
+          return res.json(updated);
+        }
+      } catch (apiErr: any) {
+        await storage.updateInvoice(invoice.id, companyId, {
+          status: "error",
+          errorMessage: apiErr.message || "Erro ao comunicar com a API fiscal",
+        } as any);
+        const updated = await storage.getInvoice(invoice.id, companyId);
+        return res.json(updated);
+      }
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+
+  app.get("/api/orders/:id/invoices", requireAuth, async (req, res) => {
+    const companyId = req.user!.companyId!;
+    res.json(await storage.getInvoicesByOrder(parseInt(req.params.id), companyId));
+  });
+
+  app.get("/api/invoices", requireAuth, async (req, res) => {
+    res.json(await storage.getInvoicesByCompany(req.user!.companyId!));
+  });
+
+  app.get("/api/invoices/:id", requireAuth, async (req, res) => {
+    const invoice = await storage.getInvoice(parseInt(req.params.id), req.user!.companyId!);
+    if (!invoice) return res.status(404).json({ message: "Nota fiscal não encontrada" });
+    res.json(invoice);
+  });
+
+  app.post("/api/invoices/:id/cancel", requireAuth, requirePermission("financial"), async (req, res) => {
+    try {
+      const companyId = req.user!.companyId!;
+      const invoiceId = parseInt(req.params.id);
+      const invoice = await storage.getInvoice(invoiceId, companyId);
+      if (!invoice) return res.status(404).json({ message: "Nota fiscal não encontrada" });
+      if (invoice.status !== "authorized") return res.status(400).json({ message: "Apenas notas autorizadas podem ser canceladas" });
+
+      const { justificativa } = z.object({ justificativa: z.string().min(15) }).parse(req.body);
+
+      const company = await storage.getCompany(companyId);
+      if (!company?.focusnfeToken) return res.status(400).json({ message: "Token fiscal não configurado" });
+
+      try {
+        const { createFiscalService } = await import("./fiscal");
+        const fiscalService = createFiscalService(company.focusnfeToken, company.ambienteFiscal || "homologacao");
+        const ref = invoice.externalId || `nfe-${companyId}-${invoice.numero}`;
+        await fiscalService.cancelarNFe(ref, justificativa);
+        await storage.updateInvoice(invoiceId, companyId, { status: "cancelled" } as any);
+        const updated = await storage.getInvoice(invoiceId, companyId);
+        return res.json(updated);
+      } catch (apiErr: any) {
+        return res.status(400).json({ message: apiErr.message || "Erro ao cancelar nota fiscal" });
+      }
+    } catch (err: any) { res.status(400).json({ message: err.message }); }
+  });
+
+  app.post("/api/invoices/:id/refresh", requireAuth, requirePermission("financial"), async (req, res) => {
+    try {
+      const companyId = req.user!.companyId!;
+      const invoiceId = parseInt(req.params.id);
+      const invoice = await storage.getInvoice(invoiceId, companyId);
+      if (!invoice) return res.status(404).json({ message: "Nota fiscal não encontrada" });
+      if (invoice.status !== "processing") return res.status(400).json({ message: "Nota não está em processamento" });
+
+      const company = await storage.getCompany(companyId);
+      if (!company?.focusnfeToken) return res.status(400).json({ message: "Token fiscal não configurado" });
+
+      const { createFiscalService } = await import("./fiscal");
+      const fiscalService = createFiscalService(company.focusnfeToken, company.ambienteFiscal || "homologacao");
+      const ref = invoice.externalId || `nfe-${companyId}-${invoice.numero}`;
+      const result = await fiscalService.consultarNFe(ref);
+
+      if (result.status === "autorizado" || result.status_sefaz === "100") {
+        await storage.updateInvoice(invoiceId, companyId, {
+          status: "authorized",
+          chaveAcesso: result.chave_nfe || result.chave_acesso,
+          protocolo: result.numero_protocolo || result.protocolo,
+          pdfUrl: result.caminho_danfe || result.url_danfe,
+          xmlUrl: result.caminho_xml_nota_fiscal || result.url_xml,
+        } as any);
+      } else if (result.status === "erro_autorizacao" || result.status === "rejeitado") {
+        await storage.updateInvoice(invoiceId, companyId, {
+          status: "error",
+          errorMessage: result.mensagem_sefaz || result.mensagem || "Erro na autorização",
+        } as any);
+      }
+
+      const updated = await storage.getInvoice(invoiceId, companyId);
+      return res.json(updated);
     } catch (err: any) { res.status(400).json({ message: err.message }); }
   });
 

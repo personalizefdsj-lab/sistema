@@ -22,6 +22,14 @@ export const companies = pgTable("companies", {
   status: text("status").notNull().default("active"),
   plan: text("plan").notNull().default("basic"),
   subscriptionExpiry: timestamp("subscription_expiry"),
+  inscricaoEstadual: text("inscricao_estadual"),
+  regimeTributario: integer("regime_tributario"),
+  certificadoDigital: text("certificado_digital"),
+  certificadoSenha: text("certificado_senha"),
+  ambienteFiscal: text("ambiente_fiscal").default("homologacao"),
+  serieNfe: integer("serie_nfe").default(1),
+  proximoNumeroNfe: integer("proximo_numero_nfe").default(1),
+  focusnfeToken: text("focusnfe_token"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -113,6 +121,10 @@ export const products = pgTable("products", {
   variationLabel: text("variation_label"),
   stockQuantity: integer("stock_quantity").default(0),
   minStock: integer("min_stock").default(0),
+  ncm: text("ncm"),
+  cfop: text("cfop"),
+  icmsOrigem: integer("icms_origem").default(0),
+  unidade: text("unidade").default("UN"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -146,6 +158,25 @@ export const expenses = pgTable("expenses", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const invoices = pgTable("invoices", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  orderId: integer("order_id").notNull().references(() => orders.id),
+  clientId: integer("client_id").notNull().references(() => clients.id),
+  numero: integer("numero").notNull(),
+  serie: integer("serie").notNull().default(1),
+  chaveAcesso: text("chave_acesso"),
+  protocolo: text("protocolo"),
+  status: text("status").notNull().default("pending"),
+  tipo: text("tipo").notNull().default("nfe"),
+  valorTotal: decimal("valor_total", { precision: 10, scale: 2 }),
+  xmlUrl: text("xml_url"),
+  pdfUrl: text("pdf_url"),
+  errorMessage: text("error_message"),
+  externalId: text("external_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const insertCompanySchema = createInsertSchema(companies).omit({ id: true, createdAt: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertClientSchema = createInsertSchema(clients).omit({ id: true, createdAt: true });
@@ -156,6 +187,7 @@ export const insertProductSchema = createInsertSchema(products).omit({ id: true,
 export const insertStockMovementSchema = createInsertSchema(stockMovements).omit({ id: true, createdAt: true });
 export const insertOrderItemSchema = createInsertSchema(orderItems).omit({ id: true });
 export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, createdAt: true });
+export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true, createdAt: true });
 
 export type Company = typeof companies.$inferSelect;
 export type InsertCompany = z.infer<typeof insertCompanySchema>;
@@ -177,6 +209,16 @@ export type OrderItem = typeof orderItems.$inferSelect;
 export type InsertOrderItem = z.infer<typeof insertOrderItemSchema>;
 export type Expense = typeof expenses.$inferSelect;
 export type InsertExpense = z.infer<typeof insertExpenseSchema>;
+export type Invoice = typeof invoices.$inferSelect;
+export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
+
+export const INVOICE_STATUS_LABELS: Record<string, string> = {
+  pending: "Pendente",
+  processing: "Processando",
+  authorized: "Autorizada",
+  cancelled: "Cancelada",
+  error: "Erro",
+};
 
 export const ORDER_STATUSES = [
   "received",
