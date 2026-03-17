@@ -4,14 +4,13 @@ if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL, ensure the database is provisioned");
 }
 
-export default {
+import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
   schema: "./shared/schema.ts",
   out: "./drizzle",
-  driver: "pg",
+  dialect: "postgresql",
   dbCredentials: {
-    connectionString: process.env.DATABASE_URL!,
-    ssl: {
-      rejectUnauthorized: false,
-    },
+    url: process.env.DATABASE_URL!,
   },
-};
+});
